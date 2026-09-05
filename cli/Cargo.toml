@@ -1,0 +1,11 @@
+[package]
+name = "bokfell"
+description = "Documentation site generator for AsciiDoc: multi-repo, versioned doc sites with live preview, version/PR diffs, and spec-coverage overlays"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+# Not ready for crates.io; flipped deliberately when 0.1 ships.
+publish = false

@@ -1,0 +1,11 @@
+[package]
+name = "bokfell-render"
+description = "Catalog-aware AsciiDoc conversion for the Bokfell documentation site generator: site-wide reference resolution and embedded HTML rendering via asciidoc-html5"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+# Not ready for crates.io; flipped deliberately when 0.1 ships.
+publish = false

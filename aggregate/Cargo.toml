@@ -1,0 +1,11 @@
+[package]
+name = "bokfell-aggregate"
+description = "Content aggregation for the Bokfell documentation site generator: local directories, worktree overlays, and cached bare git clones mapped to virtual files"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+# Not ready for crates.io; flipped deliberately when 0.1 ships.
+publish = false

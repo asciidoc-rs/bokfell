@@ -1,0 +1,11 @@
+[package]
+name = "bokfell-diff"
+description = "AsciiDoc-aware structural diff: block alignment and classification, inline word-diff, and annotated HTML emission"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+# Not ready for crates.io; flipped deliberately when 0.1 ships.
+publish = false

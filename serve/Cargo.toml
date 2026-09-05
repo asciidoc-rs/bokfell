@@ -1,0 +1,11 @@
+[package]
+name = "bokfell-serve"
+description = "Development server for the Bokfell documentation site generator: file watching, incremental rebuilds, livereload, and the edit API"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+# Not ready for crates.io; flipped deliberately when 0.1 ships.
+publish = false

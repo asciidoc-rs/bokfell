@@ -1,0 +1,11 @@
+[package]
+name = "bokfell-search"
+description = "Static search-index generation for the Bokfell documentation site generator"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+# Not ready for crates.io; flipped deliberately when 0.1 ships.
+publish = false

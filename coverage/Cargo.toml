@@ -1,0 +1,11 @@
+[package]
+name = "bokfell-coverage"
+description = "Spec-coverage ingestion for the Bokfell documentation site generator: per-line coverage data mapped onto rendered blocks for overlays and rollups"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+# Not ready for crates.io; flipped deliberately when 0.1 ships.
+publish = false

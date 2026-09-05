@@ -1,0 +1,11 @@
+[package]
+name = "bokfell-theme"
+description = "Theming for the Bokfell documentation site generator: templating, the built-in default theme, and per-file theme-directory overrides"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+# Not ready for crates.io; flipped deliberately when 0.1 ships.
+publish = false

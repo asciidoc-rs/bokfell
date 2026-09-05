@@ -1,0 +1,26 @@
+[workspace]
+members = [
+    "aggregate",
+    "cli",
+    "coverage",
+    "diff",
+    "model",
+    "render",
+    "search",
+    "serve",
+    "theme",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/asciidoc-rs/bokfell"
+# Minimum supported Rust version, matching asciidoc-parser and asciidoc-html5.
+rust-version = "1.88.0"
+version = "0.1.0"
+
+# Shared dependency versions land here as the M0 technology decisions
+# (PLAN.md §7) are wired in: asciidoc-parser, asciidoc-html5, and the
+# templating/git/serve stack. Deliberately empty until then.
+[workspace.dependencies]

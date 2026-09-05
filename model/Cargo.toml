@@ -1,0 +1,11 @@
+[package]
+name = "bokfell-model"
+description = "Content model for the Bokfell documentation site generator: playbook and antora.yml parsing, components/versions/modules/families, resource IDs, the content catalog, and the navigation model"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+# Not ready for crates.io; flipped deliberately when 0.1 ships.
+publish = false
