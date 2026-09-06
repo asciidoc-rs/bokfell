@@ -1,0 +1,6 @@
+name: hello
+title: Hello Bokfell
+version: ~
+start_page: index.adoc
+nav:
+  - modules/ROOT/nav.adoc

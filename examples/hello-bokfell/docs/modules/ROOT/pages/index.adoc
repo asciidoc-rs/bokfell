@@ -1,0 +1,18 @@
+= Hello, Bokfell
+:navtitle: Welcome
+
+This little site exists so you can kick the tires: edit any page under
+`docs/`, and if you started `bokfell serve`, your browser reloads with the
+change in well under a second.
+
+NOTE: Everything you see -- the sidebar, this note, the cross-references
+below -- was generated from plain AsciiDoc files organized in Antora's
+standard directory layout.
+
+== Where to go next
+
+* xref:writing.adoc[] shows the common AsciiDoc constructs.
+* xref:guide:structure.adoc[] explains how this site's files are laid out.
+* xref:guide:cross-references.adoc[] shows how pages link to each other.
+
+include::partial$shared-footer.adoc[]

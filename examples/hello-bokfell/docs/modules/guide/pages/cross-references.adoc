@@ -1,0 +1,14 @@
+= Cross-References
+:navtitle: Cross-references
+
+Pages address each other by *resource ID*, never by output path.
+
+Same module:: xref:structure.adoc[] resolves within `guide`.
+Another module:: xref:ROOT:writing.adoc[] names the module explicitly.
+With a fragment:: xref:ROOT:writing.adoc#_blocks[Jump to the blocks
+section] lands on an anchor inside the target page.
+Empty link text:: Leave the brackets empty -- like
+xref:ROOT:index.adoc[] -- and the target page's title is used.
+
+Bokfell resolves all of these site-wide after parsing every page, so a
+broken target shows up as a build warning instead of a dead link.

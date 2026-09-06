@@ -39,6 +39,20 @@ and milestone roadmap, and [`CLAUDE.md`](CLAUDE.md) for contributor
 conventions (including important license boundaries around code borrowed
 from other site generators).
 
+## Try it
+
+A self-contained sample site lives in
+[`examples/hello-bokfell/`](examples/hello-bokfell/):
+
+```sh
+cd examples/hello-bokfell
+cargo run --bin bokfell -- serve     # http://127.0.0.1:8000/, live reload
+# or: cargo run --bin bokfell -- build   (site lands in build/site/)
+```
+
+Edit anything under `examples/hello-bokfell/docs/` while `serve` runs and
+the browser reloads with the change.
+
 ## Building a site
 
 Point a playbook at one or more content source roots (directories holding
