@@ -54,6 +54,21 @@ pub struct PageContext<'a> {
     /// The `href` the site title links to (site-root-relative URL of the
     /// start page redirect).
     pub home_url: &'a str,
+    /// This page in every version of its component, highest first. The
+    /// selector renders only when there is more than one entry.
+    pub versions: &'a [VersionLink],
+}
+
+/// One entry of the page-version selector.
+#[derive(Clone, Debug)]
+pub struct VersionLink {
+    /// Display label (the display version, version, or `default`).
+    pub label: String,
+    /// Site-root-relative URL of this page in that version, when the page
+    /// exists there.
+    pub url: Option<String>,
+    /// Whether this entry is the version being viewed.
+    pub current: bool,
 }
 
 /// A loaded theme.
@@ -100,6 +115,7 @@ impl Theme {
                 url => ctx.url,
             },
             nav_html => nav_html(ctx.nav, ctx.url),
+            versions_html => versions_html(ctx.versions, ctx.url),
             css_href => escape_html(&relative_url(ctx.url, CSS_URL)),
             home_href => escape_html(&relative_url(ctx.url, ctx.home_url)),
         })?;
@@ -123,6 +139,37 @@ impl Theme {
              <body><a href=\"{escaped}\">Redirecting…</a></body>\n</html>\n"
         )
     }
+}
+
+/// Renders the page-version selector: nothing for a single version, else
+/// one link (or unlinked label) per version, current marked.
+fn versions_html(versions: &[VersionLink], page_url: &str) -> String {
+    if versions.len() < 2 {
+        return String::new();
+    }
+
+    let mut out = String::from("<nav class=\"page-versions\" aria-label=\"Versions\">");
+    for link in versions {
+        let label = escape_html(&link.label);
+        match (&link.url, link.current) {
+            (Some(url), false) => {
+                out.push_str(&format!(
+                    "<a href=\"{}\">{label}</a>",
+                    escape_html(&relative_url(page_url, url))
+                ));
+            }
+            (Some(_), true) => {
+                out.push_str(&format!("<span class=\"current\">{label}</span>"));
+            }
+            (None, _) => {
+                out.push_str(&format!(
+                    "<span class=\"missing\" title=\"This page does not exist in this version\">{label}</span>"
+                ));
+            }
+        }
+    }
+    out.push_str("</nav>");
+    out
 }
 
 /// Renders a navigation tree as nested `<ul>` lists with URLs relativized
@@ -225,6 +272,7 @@ mod tests {
                 contents: "<div class=\"paragraph\"><p>Body.</p></div>",
                 nav: &nav,
                 home_url: "index.html",
+                versions: &[],
             })
             .unwrap();
 

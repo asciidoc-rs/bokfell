@@ -93,6 +93,15 @@ impl Component {
     pub fn attribute_seeds(&self) -> Vec<(String, Option<String>)> {
         self.desc.asciidoc.attribute_seeds()
     }
+
+    /// Whether this component version is marked prerelease (`prerelease:`
+    /// set to anything but `false`/`null` in `antora.yml`).
+    pub fn is_prerelease(&self) -> bool {
+        !matches!(
+            &self.desc.prerelease,
+            None | Some(serde_norway::Value::Null) | Some(serde_norway::Value::Bool(false))
+        )
+    }
 }
 
 /// The content catalog.
@@ -112,11 +121,25 @@ impl ContentCatalog {
     /// Scans one content source root (a directory containing `antora.yml`
     /// and `modules/`) into the catalog.
     pub fn scan_source(&mut self, root: &Path) -> Result<(), CatalogError> {
+        self.scan_source_versioned(root, None)
+    }
+
+    /// Like [`scan_source`](Self::scan_source), with the component version
+    /// overridden (used when the version derives from the git ref a source
+    /// was aggregated from rather than from `antora.yml`).
+    pub fn scan_source_versioned(
+        &mut self,
+        root: &Path,
+        version_override: Option<&str>,
+    ) -> Result<(), CatalogError> {
         let descriptor_path = root.join("antora.yml");
         if !descriptor_path.is_file() {
             return Err(CatalogError::MissingDescriptor(root.to_path_buf()));
         }
-        let desc = ComponentDescriptor::load(&descriptor_path)?;
+        let mut desc = ComponentDescriptor::load(&descriptor_path)?;
+        if let Some(version) = version_override {
+            desc.version = Some(version.to_string());
+        }
 
         let component = Component {
             desc,
@@ -283,9 +306,49 @@ impl ContentCatalog {
         Some(segments.join("/"))
     }
 
-    /// The registered components, in scan order.
+    /// The registered component versions, in scan order.
     pub fn components(&self) -> &[Component] {
         &self.components
+    }
+
+    /// The versions of one component, highest (per the display order) first.
+    pub fn versions_of(&self, name: &str) -> Vec<&Component> {
+        let mut versions: Vec<&Component> = self
+            .components
+            .iter()
+            .filter(|c| c.desc.name == name)
+            .collect();
+        versions.sort_by(|a, b| {
+            crate::versions::version_order(a.desc.version.as_deref(), b.desc.version.as_deref())
+        });
+        versions
+    }
+
+    /// The latest version of a component: the first non-prerelease in
+    /// display order, else the first prerelease.
+    pub fn latest_of(&self, name: &str) -> Option<&Component> {
+        let versions = self.versions_of(name);
+        versions
+            .iter()
+            .find(|c| !c.is_prerelease())
+            .or_else(|| versions.first())
+            .copied()
+    }
+
+    /// Every version of the page (or other resource) at `coords`: each of
+    /// the component's versions, highest first, paired with that version's
+    /// matching file when it exists.
+    pub fn versions_of_resource(&self, coords: &Coords) -> Vec<(&Component, Option<&VirtualFile>)> {
+        self.versions_of(&coords.component)
+            .into_iter()
+            .map(|component| {
+                let candidate = Coords {
+                    version: component.desc.version.clone(),
+                    ..coords.clone()
+                };
+                (component, self.get(&candidate))
+            })
+            .collect()
     }
 
     /// All cataloged files.
@@ -323,19 +386,14 @@ impl ContentCatalog {
             .unwrap_or_else(|| from.component.clone());
 
         // With an explicit component but no explicit version, Antora
-        // resolves to that component's latest version; with one version per
-        // component in M1, that is the component's registered version.
+        // resolves to that component's *latest* version — including when
+        // the reference names the referencing page's own component.
+        // Without a component coordinate the reference stays within the
+        // referencing version.
         let version = if let Some(v) = &reference.version {
             Some(v.clone())
-        } else if reference.component.is_some()
-            && reference.component.as_deref() != Some(&from.component)
-        {
-            self.components
-                .iter()
-                .find(|c| c.desc.name == component)?
-                .desc
-                .version
-                .clone()
+        } else if reference.component.is_some() {
+            self.latest_of(&component)?.desc.version.clone()
         } else {
             from.version.clone()
         };
@@ -519,5 +577,62 @@ mod tests {
         assert_eq!(hit.coords.path, "sub/deep.adoc");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn component_qualified_references_resolve_to_latest_version() {
+        let base = std::env::temp_dir().join(format!("bokfell-latest-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+
+        // Scan order deliberately puts the OLDER version first, so scan
+        // order and version order disagree.
+        for version in ["1.0.0", "2.0.0"] {
+            let root = base.join(version);
+            std::fs::create_dir_all(root.join("modules/ROOT/pages")).unwrap();
+            std::fs::write(root.join("antora.yml"), "name: demo\nversion: ~\n").unwrap();
+            std::fs::write(root.join("modules/ROOT/pages/index.adoc"), "= Index\n").unwrap();
+        }
+
+        let mut catalog = ContentCatalog::new();
+        catalog
+            .scan_source_versioned(&base.join("1.0.0"), Some("1.0.0"))
+            .unwrap();
+        catalog
+            .scan_source_versioned(&base.join("2.0.0"), Some("2.0.0"))
+            .unwrap();
+
+        let from_old = Coords {
+            component: "demo".to_string(),
+            version: Some("1.0.0".to_string()),
+            module: "ROOT".to_string(),
+            family: Family::Page,
+            path: "index.adoc".to_string(),
+        };
+
+        // A component-qualified reference without a version — even naming
+        // the referencing page's own component — routes to the latest
+        // version, not the scan-first one and not the source version.
+        let hit = catalog
+            .resolve(
+                &ResourceRef::parse("demo::index.adoc").unwrap(),
+                &from_old,
+                Family::Page,
+            )
+            .unwrap();
+        assert_eq!(hit.coords.version.as_deref(), Some("2.0.0"));
+        assert_eq!(hit.url.as_deref(), Some("demo/2.0.0/index.html"));
+
+        // Without a component coordinate, the reference stays within the
+        // referencing version.
+        let hit = catalog
+            .resolve(
+                &ResourceRef::parse("index.adoc").unwrap(),
+                &from_old,
+                Family::Page,
+            )
+            .unwrap();
+        assert_eq!(hit.coords.version.as_deref(), Some("1.0.0"));
+
+        std::fs::remove_dir_all(&base).ok();
     }
 }

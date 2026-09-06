@@ -12,9 +12,10 @@ use std::{
 };
 
 use anyhow::{bail, Context};
+use bokfell_aggregate::{Aggregator, GitSource};
 use bokfell_model::{ContentCatalog, Coords, Family, NavTree, Playbook, ResourceRef};
 use bokfell_render::Pipeline;
-use bokfell_theme::{PageContext, Theme};
+use bokfell_theme::{PageContext, Theme, VersionLink};
 use clap::{Parser as ClapParser, Subcommand};
 
 #[derive(ClapParser)]
@@ -44,6 +45,10 @@ enum Command {
         /// built-in layout).
         #[arg(long)]
         theme: Option<PathBuf>,
+
+        /// Refresh cached remote repositories before building.
+        #[arg(long)]
+        fetch: bool,
     },
 
     /// Build into memory and serve with file watching and live reload.
@@ -59,6 +64,10 @@ enum Command {
         /// Port to serve on (binds 127.0.0.1).
         #[arg(long, default_value_t = 8000)]
         port: u16,
+
+        /// Refresh cached remote repositories before the initial build.
+        #[arg(long)]
+        fetch: bool,
     },
 }
 
@@ -68,12 +77,14 @@ fn main() -> anyhow::Result<()> {
             playbook,
             out,
             theme,
-        } => build(&playbook, out.as_deref(), theme.as_deref()),
+            fetch,
+        } => build(&playbook, out.as_deref(), theme.as_deref(), fetch),
         Command::Serve {
             playbook,
             theme,
             port,
-        } => serve(&playbook, theme.as_deref(), port),
+            fetch,
+        } => serve(&playbook, theme.as_deref(), port, fetch),
     }
 }
 
@@ -84,14 +95,64 @@ type SiteFiles = Vec<(String, Vec<u8>)>;
 ///
 /// Warnings are printed to stderr as they surface; the count is returned
 /// alongside the files.
-fn compose_site(playbook_path: &Path, theme_dir: Option<&Path>) -> anyhow::Result<SiteFiles> {
+fn compose_site(
+    playbook_path: &Path,
+    theme_dir: Option<&Path>,
+    fetch: bool,
+) -> anyhow::Result<SiteFiles> {
     let playbook = Playbook::load(playbook_path)?;
 
+    let cache_dir = playbook
+        .runtime
+        .cache_dir
+        .as_deref()
+        .map(|dir| playbook.resolve_path(dir))
+        .unwrap_or_else(Aggregator::default_cache_dir);
+    let aggregator = Aggregator::new(cache_dir, fetch || playbook.runtime.fetch);
+
     let mut catalog = ContentCatalog::new();
-    for root in playbook.source_roots() {
-        catalog
-            .scan_source(&root)
-            .with_context(|| format!("scanning content source {}", root.display()))?;
+    for source in &playbook.content.sources {
+        source.validate().map_err(anyhow::Error::msg)?;
+
+        if let Some(path) = &source.path {
+            let root = playbook.resolve_path(path);
+            catalog
+                .scan_source(&root)
+                .with_context(|| format!("scanning content source {}", root.display()))?;
+            continue;
+        }
+
+        // A git source: aggregate each matched ref into a content root.
+        let url = source.url.clone().expect("validated: url set");
+        let url = {
+            // Relative local paths resolve against the playbook.
+            let as_path = Path::new(&url);
+            if as_path.is_relative() && playbook.resolve_path(as_path).join(".git").exists() {
+                playbook.resolve_path(as_path).display().to_string()
+            } else {
+                url
+            }
+        };
+        let git_source = GitSource {
+            url: url.clone(),
+            branches: source.branches.clone(),
+            tags: source.tags.clone(),
+            start_path: source.start_path.clone(),
+            version_from_ref: source.version_from_ref,
+        };
+        let roots = aggregator.collect(&git_source)?;
+        for root in roots {
+            catalog
+                .scan_source_versioned(&root.path, root.version_override.as_deref())
+                .with_context(|| {
+                    format!(
+                        "scanning {} ref {} ({})",
+                        url,
+                        root.refname,
+                        root.path.display()
+                    )
+                })?;
+        }
     }
     if catalog.components().is_empty() {
         bail!("no components found in the playbook's content sources");
@@ -101,10 +162,10 @@ fn compose_site(playbook_path: &Path, theme_dir: Option<&Path>) -> anyhow::Resul
     let site = pipeline.render_site()?;
     let theme = Theme::load(theme_dir)?;
 
-    let navs: std::collections::HashMap<&str, &NavTree> = site
+    let navs: std::collections::HashMap<(&str, Option<&str>), &NavTree> = site
         .navs
         .iter()
-        .map(|(name, tree)| (name.as_str(), tree))
+        .map(|((name, version), tree)| ((name.as_str(), version.as_deref()), tree))
         .collect();
     let empty_nav = NavTree::default();
     let start_url = start_page_url(&playbook, pipeline.catalog(), &site.pages)?;
@@ -117,9 +178,30 @@ fn compose_site(playbook_path: &Path, theme_dir: Option<&Path>) -> anyhow::Resul
         }
 
         let nav = navs
-            .get(page.coords.component.as_str())
+            .get(&(
+                page.coords.component.as_str(),
+                page.coords.version.as_deref(),
+            ))
             .copied()
             .unwrap_or(&empty_nav);
+
+        // The page-version selector: this page across the component's
+        // versions, highest first.
+        let versions: Vec<VersionLink> = pipeline
+            .catalog()
+            .versions_of_resource(&page.coords)
+            .into_iter()
+            .map(|(component, file)| VersionLink {
+                label: component
+                    .desc
+                    .display_version
+                    .clone()
+                    .or_else(|| component.desc.version.clone())
+                    .unwrap_or_else(|| "default".to_string()),
+                url: file.and_then(|f| f.url.clone()),
+                current: component.desc.version == page.coords.version,
+            })
+            .collect();
 
         let html = theme.compose_page(&PageContext {
             site_title: &playbook.site.title,
@@ -129,6 +211,7 @@ fn compose_site(playbook_path: &Path, theme_dir: Option<&Path>) -> anyhow::Resul
             contents: &page.contents,
             nav,
             home_url: "index.html",
+            versions: &versions,
         })?;
         files.push((page.url.clone(), html.into_bytes()));
     }
@@ -154,13 +237,18 @@ fn compose_site(playbook_path: &Path, theme_dir: Option<&Path>) -> anyhow::Resul
     Ok(files)
 }
 
-fn build(playbook_path: &Path, out: Option<&Path>, theme_dir: Option<&Path>) -> anyhow::Result<()> {
+fn build(
+    playbook_path: &Path,
+    out: Option<&Path>,
+    theme_dir: Option<&Path>,
+    fetch: bool,
+) -> anyhow::Result<()> {
     let playbook = Playbook::load(playbook_path)?;
     let out_dir = out
         .map(Path::to_path_buf)
         .unwrap_or_else(|| playbook.output_dir());
 
-    let files = compose_site(playbook_path, theme_dir)?;
+    let files = compose_site(playbook_path, theme_dir, fetch)?;
     let count = files.len();
     for (url, bytes) in files {
         write_output(&out_dir, &url, &bytes)?;
@@ -173,20 +261,31 @@ fn build(playbook_path: &Path, out: Option<&Path>, theme_dir: Option<&Path>) -> 
     Ok(())
 }
 
-fn serve(playbook_path: &Path, theme_dir: Option<&Path>, port: u16) -> anyhow::Result<()> {
-    // Watch the playbook, every content source root, and the theme
-    // directory.
+fn serve(
+    playbook_path: &Path,
+    theme_dir: Option<&Path>,
+    port: u16,
+    fetch: bool,
+) -> anyhow::Result<()> {
+    // Watch the playbook, every *local directory* content source, and the
+    // theme directory (git sources are cache-backed and not watched).
     let playbook = Playbook::load(playbook_path)?;
     let mut watch: Vec<PathBuf> = vec![playbook_path.to_path_buf()];
-    watch.extend(playbook.source_roots());
+    for source in &playbook.content.sources {
+        if let Some(path) = &source.path {
+            watch.push(playbook.resolve_path(path));
+        }
+    }
     if let Some(dir) = theme_dir {
         watch.push(dir.to_path_buf());
     }
 
     let playbook_path = playbook_path.to_path_buf();
     let theme_dir = theme_dir.map(Path::to_path_buf);
+    let mut first = fetch;
     let builder: bokfell_serve::SiteBuilder = Box::new(move || {
-        compose_site(&playbook_path, theme_dir.as_deref())
+        let fetch_now = std::mem::take(&mut first);
+        compose_site(&playbook_path, theme_dir.as_deref(), fetch_now)
             .map(|files| files.into_iter().collect())
             .map_err(|e| format!("{e:#}"))
     });
