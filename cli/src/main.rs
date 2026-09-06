@@ -1,10 +1,15 @@
 //! The Bokfell command line.
 //!
 //! `bokfell build` runs the M1 pipeline: playbook → content catalog →
-//! render → theme composition → static site. The `serve`, `diff`, and
-//! `coverage` commands arrive with later milestones (PLAN.md §10).
+//! render → theme composition → static site. `bokfell serve` runs the same
+//! pipeline into memory behind a watching dev server with live reload
+//! (M2). The `diff` and `coverage` commands arrive with later milestones
+//! (PLAN.md §10).
 
-use std::path::{Path, PathBuf};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{bail, Context};
 use bokfell_model::{ContentCatalog, Coords, Family, NavTree, Playbook, ResourceRef};
@@ -40,6 +45,21 @@ enum Command {
         #[arg(long)]
         theme: Option<PathBuf>,
     },
+
+    /// Build into memory and serve with file watching and live reload.
+    Serve {
+        /// Path to the playbook file.
+        #[arg(short, long, default_value = "bokfell.yml")]
+        playbook: PathBuf,
+
+        /// Theme override directory.
+        #[arg(long)]
+        theme: Option<PathBuf>,
+
+        /// Port to serve on (binds 127.0.0.1).
+        #[arg(long, default_value_t = 8000)]
+        port: u16,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -49,16 +69,24 @@ fn main() -> anyhow::Result<()> {
             out,
             theme,
         } => build(&playbook, out.as_deref(), theme.as_deref()),
+        Command::Serve {
+            playbook,
+            theme,
+            port,
+        } => serve(&playbook, theme.as_deref(), port),
     }
 }
 
-fn build(playbook_path: &Path, out: Option<&Path>, theme_dir: Option<&Path>) -> anyhow::Result<()> {
-    let playbook = Playbook::load(playbook_path)?;
-    let out_dir = out
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| playbook.output_dir());
+/// One composed site output: `(site-root-relative URL, bytes)`.
+type SiteFiles = Vec<(String, Vec<u8>)>;
 
-    // Scan every content source into the catalog.
+/// Runs playbook → catalog → render → theme and returns every site file.
+///
+/// Warnings are printed to stderr as they surface; the count is returned
+/// alongside the files.
+fn compose_site(playbook_path: &Path, theme_dir: Option<&Path>) -> anyhow::Result<SiteFiles> {
+    let playbook = Playbook::load(playbook_path)?;
+
     let mut catalog = ContentCatalog::new();
     for root in playbook.source_roots() {
         catalog
@@ -69,28 +97,22 @@ fn build(playbook_path: &Path, out: Option<&Path>, theme_dir: Option<&Path>) -> 
         bail!("no components found in the playbook's content sources");
     }
 
-    let site_attrs = playbook.asciidoc.attribute_seeds();
-    let pipeline = Pipeline::new(catalog, site_attrs);
+    let pipeline = Pipeline::new(catalog, playbook.asciidoc.attribute_seeds());
     let site = pipeline.render_site()?;
-
     let theme = Theme::load(theme_dir)?;
 
-    // Per-component navigation trees.
     let navs: std::collections::HashMap<&str, &NavTree> = site
         .navs
         .iter()
         .map(|(name, tree)| (name.as_str(), tree))
         .collect();
     let empty_nav = NavTree::default();
-
-    // The site root redirects to the start page.
     let start_url = start_page_url(&playbook, pipeline.catalog(), &site.pages)?;
 
-    // Compose and write every page.
-    let mut warning_count = 0usize;
+    let mut files: SiteFiles = Vec::new();
+
     for page in &site.pages {
         for warning in &page.warnings {
-            warning_count += 1;
             eprintln!("warning: {}: {warning}", page.coords);
         }
 
@@ -108,41 +130,76 @@ fn build(playbook_path: &Path, out: Option<&Path>, theme_dir: Option<&Path>) -> 
             nav,
             home_url: "index.html",
         })?;
-
-        write_output(&out_dir, &page.url, html.as_bytes())?;
+        files.push((page.url.clone(), html.into_bytes()));
     }
 
-    // Copy published static resources (images, attachments).
-    let mut asset_count = 0usize;
+    // Published static resources (images, attachments).
     for family in [Family::Image, Family::Attachment] {
         for file in pipeline.catalog().files_of(family) {
             if let Some(url) = &file.url {
                 let bytes = std::fs::read(&file.src_path)
                     .with_context(|| format!("reading {}", file.src_path.display()))?;
-                write_output(&out_dir, url, &bytes)?;
-                asset_count += 1;
+                files.push((url.clone(), bytes));
             }
         }
     }
 
     // Theme assets and the root redirect.
-    for (url, bytes) in theme.assets() {
+    files.extend(theme.assets());
+    files.push((
+        "index.html".to_string(),
+        Theme::redirect_page(&start_url).into_bytes(),
+    ));
+
+    Ok(files)
+}
+
+fn build(playbook_path: &Path, out: Option<&Path>, theme_dir: Option<&Path>) -> anyhow::Result<()> {
+    let playbook = Playbook::load(playbook_path)?;
+    let out_dir = out
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| playbook.output_dir());
+
+    let files = compose_site(playbook_path, theme_dir)?;
+    let count = files.len();
+    for (url, bytes) in files {
         write_output(&out_dir, &url, &bytes)?;
     }
-    write_output(
-        &out_dir,
-        "index.html",
-        Theme::redirect_page(&start_url).as_bytes(),
-    )?;
 
     println!(
-        "Site generation complete: {} pages, {asset_count} static files → {}",
-        site.pages.len(),
+        "Site generation complete: {count} files → {}",
         out_dir.display()
     );
-    if warning_count > 0 {
-        eprintln!("{warning_count} warning(s)");
+    Ok(())
+}
+
+fn serve(playbook_path: &Path, theme_dir: Option<&Path>, port: u16) -> anyhow::Result<()> {
+    // Watch the playbook, every content source root, and the theme
+    // directory.
+    let playbook = Playbook::load(playbook_path)?;
+    let mut watch: Vec<PathBuf> = vec![playbook_path.to_path_buf()];
+    watch.extend(playbook.source_roots());
+    if let Some(dir) = theme_dir {
+        watch.push(dir.to_path_buf());
     }
+
+    let playbook_path = playbook_path.to_path_buf();
+    let theme_dir = theme_dir.map(Path::to_path_buf);
+    let builder: bokfell_serve::SiteBuilder = Box::new(move || {
+        compose_site(&playbook_path, theme_dir.as_deref())
+            .map(|files| files.into_iter().collect())
+            .map_err(|e| format!("{e:#}"))
+    });
+
+    let addr: SocketAddr = ([127, 0, 0, 1], port).into();
+    bokfell_serve::serve(
+        builder,
+        bokfell_serve::ServeOptions {
+            addr,
+            watch,
+            ..Default::default()
+        },
+    )?;
     Ok(())
 }
 

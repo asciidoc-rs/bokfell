@@ -14,5 +14,6 @@ publish = false
 anyhow = "1"
 bokfell-model = { path = "../model", version = "0.1.0" }
 bokfell-render = { path = "../render", version = "0.1.0" }
+bokfell-serve = { path = "../serve", version = "0.1.0" }
 bokfell-theme = { path = "../theme", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }

@@ -471,6 +471,11 @@ Ordered to dogfood early and keep every milestone shippable:
 - **M2 — Serve + live reload.** Watcher, change classification, incremental
   recompose vs re-render, WebSocket reload. Exit: sub-second edit→reload on
   the dogfood site.
+  *Core done (2026-09-06): `bokfell serve` watches sources/playbook/theme
+  and rebuilds the dogfood site whole in ~150 ms (well under the exit
+  criterion), pushing reloads over a WebSocket; change classification and
+  dependency-tracked partial rebuilds remain as the optimization slot
+  behind the `SiteBuilder` seam.*
 - **M3 — Multi-repo, multi-version.** gix aggregation with cache, branch/tag
   patterns, worktree overlays, version sorting/latest/prerelease, version
   selector UI, redirects, sitemap, edit links. Exit: an aggregated

@@ -28,8 +28,10 @@ have:
 **Pre-alpha.** The M1 single-component pipeline works: `bokfell build`
 takes a playbook, scans an Antora-compatible content source, resolves
 cross-references and includes site-wide, and publishes a themed static
-site. Multi-repo aggregation, versions, live preview, diffs, and coverage
-overlays are still to come — see [`PLAN.md`](PLAN.md) for the architecture
+site — and `bokfell serve` runs the same build into memory behind a
+watching dev server with live browser reload (~150 ms rebuilds on a
+37-page site). Multi-repo aggregation, versions, diffs, coverage
+overlays, and click-to-source editing are still to come — see [`PLAN.md`](PLAN.md) for the architecture
 and milestone roadmap, and [`CLAUDE.md`](CLAUDE.md) for contributor
 conventions (including important license boundaries around code borrowed
 from other site generators).
@@ -59,6 +61,12 @@ bokfell build            # or: bokfell build -p path/to/bokfell.yml
 
 The site lands in `output.dir` with a root `index.html` redirecting to the
 start page. `--theme <dir>` overrides the built-in layout per file.
+
+For a live-reloading preview while editing:
+
+```sh
+bokfell serve            # http://127.0.0.1:8000/, --port to change
+```
 
 ## License
 

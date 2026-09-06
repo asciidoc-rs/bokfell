@@ -9,3 +9,9 @@ version.workspace = true
 
 # Not ready for crates.io; flipped deliberately when 0.1 ships.
 publish = false
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+notify-debouncer-full = "0.7"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync"] }
