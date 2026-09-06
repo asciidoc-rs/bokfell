@@ -14,7 +14,6 @@
 //! is opened in place — no cache copy of the repository itself.
 
 use std::{
-    hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
 };
@@ -210,11 +209,18 @@ impl Aggregator {
             message,
         };
 
+        // The export's identity is (commit, exact start path). The readable
+        // sanitized name alone is lossy (`docs/a` and `docs_a` would
+        // collide), so the exact path's hash is part of the key.
         let dest = self
             .cache_dir
             .join("exports")
             .join(commit_id.to_string())
-            .join(sanitize(&source.start_path));
+            .join(format!(
+                "{}-{:08x}",
+                sanitize(&source.start_path),
+                fnv1a64(source.start_path.as_bytes()) as u32
+            ));
         let marker = dest.join(".bokfell-export-complete");
         if marker.is_file() {
             return Ok(dest);
@@ -244,14 +250,51 @@ impl Aggregator {
                 .map_err(|e| as_error(e.to_string()))?;
         }
 
-        // (Re-)export: clear any partial previous attempt first.
-        if dest.exists() {
-            std::fs::remove_dir_all(&dest).map_err(|e| as_error(e.to_string()))?;
+        // Publish atomically so concurrent builds sharing the cache never
+        // observe a partial export: build the whole tree (marker included)
+        // in a process-unique staging directory, then rename it into
+        // place. Losing the rename race to a completed export is success.
+        let staging = dest.with_file_name(format!(
+            ".staging-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&staging).map_err(|e| as_error(e.to_string()))?;
+        let result = export_tree(&tree, &staging).and_then(|()| {
+            std::fs::write(
+                staging.join(".bokfell-export-complete"),
+                commit_id.to_string(),
+            )
+            .map_err(|e| e.to_string())
+        });
+        if let Err(message) = result {
+            std::fs::remove_dir_all(&staging).ok();
+            return Err(as_error(message));
         }
-        std::fs::create_dir_all(&dest).map_err(|e| as_error(e.to_string()))?;
-        export_tree(&tree, &dest).map_err(as_error)?;
-        std::fs::write(&marker, commit_id.to_string()).map_err(|e| as_error(e.to_string()))?;
-        Ok(dest)
+
+        for attempt in 0..2 {
+            match std::fs::rename(&staging, &dest) {
+                Ok(()) => return Ok(dest),
+                Err(_) if marker.is_file() => {
+                    // Another build published this export first.
+                    std::fs::remove_dir_all(&staging).ok();
+                    return Ok(dest);
+                }
+                Err(e) if attempt == 0 => {
+                    // A stale partial from a crashed build: clear and retry.
+                    std::fs::remove_dir_all(&dest).ok();
+                    let _ = e;
+                }
+                Err(e) => {
+                    std::fs::remove_dir_all(&staging).ok();
+                    return Err(as_error(e.to_string()));
+                }
+            }
+        }
+        unreachable!("the retry loop returns on every path");
     }
 }
 
@@ -273,13 +316,17 @@ fn matched_refs(
     let mut matched: Vec<(String, gix::ObjectId)> = Vec::new();
     let mut seen_branches = std::collections::HashSet::new();
 
-    // `HEAD` names the repository's current branch.
+    // `HEAD` names the repository's current branch — but a negative
+    // pattern still excludes that branch (`[HEAD, '!main']` with HEAD on
+    // `main` selects nothing).
     if branches.iter().any(|p| p == "HEAD") {
         if let Ok(Some(mut head)) = repo.head_ref() {
             let name = head.name().shorten().to_string();
-            let id = head.peel_to_commit().map_err(|e| e.to_string())?.id;
-            if seen_branches.insert(name.clone()) {
-                matched.push((name, id));
+            if !excluded_by_negation(&name, &source.branches) {
+                let id = head.peel_to_commit().map_err(|e| e.to_string())?.id;
+                if seen_branches.insert(name.clone()) {
+                    matched.push((name, id));
+                }
             }
         }
     }
@@ -381,6 +428,14 @@ fn export_tree(tree: &gix::Tree<'_>, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether any negative (`!`-prefixed) pattern matches the name.
+fn excluded_by_negation(name: &str, patterns: &[String]) -> bool {
+    patterns
+        .iter()
+        .filter_map(|p| p.strip_prefix('!'))
+        .any(|negated| glob_match(negated, name))
+}
+
 /// Matches a ref short-name against glob patterns (`*` wildcards), where a
 /// leading `!` negates: the name must match at least one positive pattern
 /// and no negative one.
@@ -415,8 +470,6 @@ fn glob_match(pattern: &str, name: &str) -> bool {
 
 /// A stable, readable cache directory name for a repository URL.
 fn cache_key(url: &str) -> String {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    url.hash(&mut hasher);
     let tail: String = url
         .rsplit(['/', ':'])
         .next()
@@ -424,7 +477,19 @@ fn cache_key(url: &str) -> String {
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
         .collect();
-    format!("{tail}-{:016x}", hasher.finish())
+    format!("{tail}-{:016x}", fnv1a64(url.as_bytes()))
+}
+
+/// FNV-1a, 64-bit: a tiny hash with a *stable* definition, safe to bake
+/// into on-disk cache paths (`DefaultHasher` is explicitly not stable
+/// across Rust releases).
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 fn sanitize(path: &str) -> String {
@@ -459,6 +524,19 @@ mod tests {
         assert!(!matches_patterns("v1.2", &patterns(&["v*", "!v1.*"])));
         assert!(matches_patterns("v2.0", &patterns(&["v*", "!v1.*"])));
         assert!(!matches_patterns("main", &patterns(&["v*"])));
+    }
+
+    #[test]
+    fn negation_applies_to_head_resolution() {
+        let patterns: Vec<String> = vec!["HEAD".to_string(), "!main".to_string()];
+        assert!(excluded_by_negation("main", &patterns));
+        assert!(!excluded_by_negation("develop", &patterns));
+    }
+
+    #[test]
+    fn export_keys_distinguish_lossy_start_paths() {
+        assert_ne!(fnv1a64(b"docs/a"), fnv1a64(b"docs_a"));
+        assert_eq!(sanitize("docs/a"), sanitize("docs_a"));
     }
 
     #[test]

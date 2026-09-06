@@ -30,27 +30,39 @@ pub fn version_order(a: Option<&str>, b: Option<&str>) -> Ordering {
     }
 }
 
-/// A parsed `major.minor.patch` prefix plus any remainder (prerelease/build
-/// suffix), enough to order real-world tags without a semver dependency.
+/// A parsed semantic version with [semver precedence] for the prerelease
+/// part: a release outranks any prerelease of the same numbers; prerelease
+/// identifiers compare dot-wise, numeric identifiers numerically (and
+/// lower than alphanumeric ones), with a longer identifier list winning
+/// over its own prefix. Build metadata (`+…`) never affects precedence.
 ///
-/// The remainder is compared so `1.0.0` sorts *after* `1.0.0-rc.1`
-/// (an empty remainder wins), matching semver precedence closely enough
-/// for version listings.
+/// [semver precedence]: https://semver.org/#spec-item-11
 #[derive(Debug, Eq, PartialEq)]
 struct SemverKey {
     parts: [u64; 3],
-    // `true` for a bare release; a release outranks any suffixed version
-    // with the same numbers.
-    release: bool,
-    suffix: String,
+    /// `None` for a bare release (which outranks every prerelease).
+    prerelease: Option<Vec<PreId>>,
+}
+
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
+enum PreId {
+    /// Numeric identifiers compare numerically and rank below
+    /// alphanumeric ones (the variant order encodes that).
+    Numeric(u64),
+    Alpha(String),
 }
 
 impl Ord for SemverKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.parts
-            .cmp(&other.parts)
-            .then(self.release.cmp(&other.release))
-            .then_with(|| self.suffix.cmp(&other.suffix))
+        self.parts.cmp(&other.parts).then_with(|| {
+            match (&self.prerelease, &other.prerelease) {
+                (None, None) => Ordering::Equal,
+                // A release outranks any prerelease of the same numbers.
+                (None, Some(_)) => Ordering::Greater,
+                (Some(_), None) => Ordering::Less,
+                (Some(a), Some(b)) => a.cmp(b),
+            }
+        })
     }
 }
 
@@ -63,9 +75,12 @@ impl PartialOrd for SemverKey {
 fn parse_semver(version: &str) -> Option<SemverKey> {
     let trimmed = version.strip_prefix('v').unwrap_or(version);
 
-    let (numbers, suffix) = match trimmed.find(['-', '+']) {
-        Some(at) => (&trimmed[..at], &trimmed[at..]),
-        None => (trimmed, ""),
+    // Build metadata is identity-irrelevant for precedence: strip it.
+    let trimmed = trimmed.split_once('+').map_or(trimmed, |(v, _)| v);
+
+    let (numbers, prerelease) = match trimmed.split_once('-') {
+        Some((n, pre)) => (n, Some(pre)),
+        None => (trimmed, None),
     };
 
     let mut parts = [0u64; 3];
@@ -81,11 +96,16 @@ fn parse_semver(version: &str) -> Option<SemverKey> {
         return None;
     }
 
-    Some(SemverKey {
-        parts,
-        release: suffix.is_empty(),
-        suffix: suffix.to_string(),
-    })
+    let prerelease = prerelease.map(|pre| {
+        pre.split('.')
+            .map(|id| match id.parse::<u64>() {
+                Ok(n) => PreId::Numeric(n),
+                Err(_) => PreId::Alpha(id.to_string()),
+            })
+            .collect()
+    });
+
+    Some(SemverKey { parts, prerelease })
 }
 
 /// Derives a version coordinate from a git ref name, for content sources
@@ -150,6 +170,40 @@ mod tests {
                 Some("1.10.0-rc.1"),
                 Some("1.9.0"),
             ]
+        );
+    }
+
+    #[test]
+    fn prerelease_precedence_is_semantic() {
+        // rc.2 < rc.10 numerically, not lexically.
+        assert_eq!(
+            sorted(vec![Some("1.0.0-rc.10"), Some("1.0.0-rc.2")]),
+            vec![Some("1.0.0-rc.10"), Some("1.0.0-rc.2")]
+        );
+
+        // Numeric identifiers rank below alphanumeric; a longer list beats
+        // its own prefix; the bare release beats them all.
+        assert_eq!(
+            sorted(vec![
+                Some("1.0.0-alpha"),
+                Some("1.0.0"),
+                Some("1.0.0-alpha.1"),
+                Some("1.0.0-alpha.beta"),
+                Some("1.0.0-1"),
+            ]),
+            vec![
+                Some("1.0.0"),
+                Some("1.0.0-alpha.beta"),
+                Some("1.0.0-alpha.1"),
+                Some("1.0.0-alpha"),
+                Some("1.0.0-1"),
+            ]
+        );
+
+        // Build metadata never affects precedence.
+        assert_eq!(
+            version_order(Some("1.0.0+build.5"), Some("1.0.0+build.9")),
+            std::cmp::Ordering::Equal
         );
     }
 

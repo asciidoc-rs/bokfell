@@ -36,11 +36,14 @@ fn aggregates_branch_and_tag_as_versions() {
     std::fs::remove_dir_all(&base).ok();
     std::fs::create_dir_all(&repo).unwrap();
 
-    // Fixture history: v1.0.0 says "old", main says "new".
+    // Fixture history: v1.0.0 says "old", main says "new" — and each ref
+    // carries its own component attributes, so descriptor selection per
+    // version is observable in the rendered output.
     git(&repo, &["init", "-q", "-b", "main"]);
     write(
         &repo.join("docs/antora.yml"),
-        "name: demo\nversion: ~\nnav:\n- modules/ROOT/nav.adoc\n",
+        "name: demo\nversion: ~\nnav:\n- modules/ROOT/nav.adoc\n\
+         asciidoc:\n  attributes:\n    flavor: vintage\n",
     );
     write(
         &repo.join("docs/modules/ROOT/nav.adoc"),
@@ -48,14 +51,19 @@ fn aggregates_branch_and_tag_as_versions() {
     );
     write(
         &repo.join("docs/modules/ROOT/pages/index.adoc"),
-        "= Demo\n\nThe old wording.\n",
+        "= Demo\n\nThe old wording ({flavor}).\n",
     );
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "one"]);
     git(&repo, &["tag", "v1.0.0"]);
     write(
+        &repo.join("docs/antora.yml"),
+        "name: demo\nversion: ~\nnav:\n- modules/ROOT/nav.adoc\n\
+         asciidoc:\n  attributes:\n    flavor: fresh\n",
+    );
+    write(
         &repo.join("docs/modules/ROOT/pages/index.adoc"),
-        "= Demo\n\nThe new wording.\n\nOnly on main: xref:extra.adoc[].\n",
+        "= Demo\n\nThe new wording ({flavor}).\n\nOnly on main: xref:extra.adoc[].\n",
     );
     write(
         &repo.join("docs/modules/ROOT/pages/extra.adoc"),
@@ -127,8 +135,18 @@ fn aggregates_branch_and_tag_as_versions() {
         .iter()
         .find(|p| p.url == "demo/1.0.0/index.html")
         .expect("1.0.0 index rendered");
-    assert!(main_index.contents.contains("The new wording."));
-    assert!(old_index.contents.contains("The old wording."));
+    // Content AND descriptor attributes are the matched version's own:
+    // the tag's pages must see the tag's `flavor`, not main's.
+    assert!(
+        main_index.contents.contains("The new wording (fresh)."),
+        "main index: {}",
+        main_index.contents
+    );
+    assert!(
+        old_index.contents.contains("The old wording (vintage)."),
+        "1.0.0 index: {}",
+        old_index.contents
+    );
 
     // Both versions got their own nav tree.
     assert_eq!(site.navs.len(), 2);
@@ -136,6 +154,17 @@ fn aggregates_branch_and_tag_as_versions() {
     // Aggregating again reuses the commit-keyed export cache.
     let again = aggregator.collect(&source).unwrap();
     assert_eq!(again.len(), 2);
+
+    // A negative pattern excludes the branch HEAD resolves to.
+    let negated = GitSource {
+        branches: vec!["HEAD".to_string(), "!main".to_string()],
+        tags: Vec::new(),
+        ..source.clone()
+    };
+    assert!(matches!(
+        aggregator.collect(&negated),
+        Err(bokfell_aggregate::AggregateError::NoMatchingRef { .. })
+    ));
 
     std::fs::remove_dir_all(&base).ok();
 }

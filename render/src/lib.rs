@@ -304,10 +304,13 @@ impl Pipeline {
     }
 
     fn component_of(&self, coords: &Coords) -> Result<&Component, RenderError> {
+        // Both coordinates matter: with several versions of one component
+        // in the catalog, matching by name alone would hand every page the
+        // first-scanned version's descriptor (attributes, title, nav).
         self.catalog
             .components()
             .iter()
-            .find(|c| c.desc.name == coords.component)
+            .find(|c| c.desc.name == coords.component && c.desc.version == coords.version)
             .ok_or_else(|| RenderError::UnknownComponent(coords.to_string()))
     }
 }
