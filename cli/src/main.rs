@@ -447,11 +447,9 @@ fn coverage_dashboard(covered: &[&RenderedPage]) -> String {
     }
 
     let total = total_verified + total_uncovered;
-    let total_percent = if total == 0 {
-        100
-    } else {
-        (total_verified * 100 / total) as u32
-    };
+    let total_percent = (total_verified * 100)
+        .checked_div(total)
+        .map_or(100, |percent| percent as u32);
     out.push_str(&format!(
         "</tbody>\n<tfoot><tr><td>All covered pages</td>\
          <td class=\"num\">{total_verified}</td>\

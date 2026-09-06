@@ -183,11 +183,9 @@ impl PageCoverage {
     /// page has no normative lines at all).
     pub fn percent_verified(&self) -> u32 {
         let total = self.verified + self.uncovered;
-        if total == 0 {
-            100
-        } else {
-            ((self.verified * 100) / total) as u32
-        }
+        (self.verified * 100)
+            .checked_div(total)
+            .map_or(100, |percent| percent as u32)
     }
 
     /// Builds page coverage from line data plus the page's blocks, given
