@@ -311,6 +311,84 @@ a:hover { text-decoration: underline; }
    renderer development. */
 .doc .unsupported { color: var(--bf-important); }
 
+/* Spec-coverage overlay (PLAN.md §9.2): the badge/toggle on covered
+   pages, per-block shading while the body carries .coverage-overlay,
+   and the site-wide dashboard table. */
+.coverage-badge {
+  float: right;
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 0.8rem;
+  margin: 1.5rem 2rem 0 1rem;
+}
+
+.cov-high { --bf-cov: #2f9e44; }
+.cov-mid { --bf-cov: #cd8b12; }
+.cov-low { --bf-cov: #e03131; }
+
+.coverage-badge button {
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid var(--bf-cov, var(--bf-border));
+  border-radius: 999px;
+  padding: 0.15rem 0.7rem;
+  cursor: pointer;
+  background: var(--bf-nav-bg);
+  color: var(--bf-cov, inherit);
+}
+
+.coverage-badge button[disabled] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.coverage-badge a { color: var(--bf-muted); }
+
+span.cov-high, span.cov-mid, span.cov-low {
+  color: var(--bf-cov);
+  font-weight: 600;
+}
+
+.coverage-overlay .doc [data-coverage] { border-radius: 3px; }
+
+.coverage-overlay .doc [data-coverage="verified"] {
+  background: rgba(47, 158, 68, 0.12);
+  box-shadow: inset 3px 0 0 #2f9e44;
+}
+
+.coverage-overlay .doc [data-coverage="partial"] {
+  background: rgba(205, 139, 18, 0.14);
+  box-shadow: inset 3px 0 0 #cd8b12;
+}
+
+.coverage-overlay .doc [data-coverage="uncovered"] {
+  background: rgba(224, 49, 49, 0.1);
+  box-shadow: inset 3px 0 0 #e03131;
+}
+
+.coverage-dashboard table {
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.coverage-dashboard th,
+.coverage-dashboard td {
+  border: 1px solid var(--bf-border);
+  padding: 0.4rem 0.8rem;
+  text-align: left;
+}
+
+.coverage-dashboard td.num { text-align: right; }
+
+.coverage-dashboard .page-url {
+  color: var(--bf-muted);
+  font-size: 0.8em;
+  margin-left: 0.4rem;
+}
+
+.coverage-dashboard tfoot td { font-weight: 600; }
+
 @media (max-width: 60rem) {
   .site-body { flex-direction: column; }
   .site-nav {

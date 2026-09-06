@@ -495,6 +495,19 @@ Ordered to dogfood early and keep every milestone shippable:
   scanner (ported/generalized `sdd`), per-page overlay + rollups + dashboard.
   Exit: the dogfood site displays live verification status for these repos'
   docs against their test suites.
+  *Core done (2026-09-06): `bokfell-coverage` ingests the `sdd` tool's
+  Codecov-style per-line JSON (playbook `coverage:` files per source),
+  projects line statuses onto each page's blocks through the parser's
+  source map (include-origin blocks excluded), and the theme renders a
+  per-page verified-percentage badge, a click-to-toggle block-shading
+  overlay (server AST walk and client DOM walk over one shared
+  context/selector table; a count mismatch disables the overlay for that
+  page rather than mis-shading), and a site-wide `/coverage.html`
+  dashboard — verified against the real `sdd` output for all 37 dogfood
+  pages, every one pairing exactly. Still inside M4's umbrella: a
+  `bokfell coverage` scanner of our own (today the JSON comes from the
+  repo's test suite via `sdd`), and exact block anchoring once
+  asciidoc-html5#339 ships `data-source-line`.*
 - **M5 — Diff views.** `bokfell-diff` engine, version-pair pages, "what
   changed" index, PR preview mode (base vs head), CI recipe. Exit: a PR
   against a docs repo produces a browsable diff-highlighted preview site.

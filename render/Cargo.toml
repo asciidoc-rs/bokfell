@@ -13,5 +13,6 @@ publish = false
 [dependencies]
 asciidoc-html5.workspace = true
 asciidoc-parser.workspace = true
+bokfell-coverage = { path = "../coverage", version = "0.1.0" }
 bokfell-model = { path = "../model", version = "0.1.0" }
 thiserror = "2"

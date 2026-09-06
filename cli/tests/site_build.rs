@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 
+use bokfell_coverage::{BlockStatus, CoverageData};
 use bokfell_model::{ContentCatalog, Family};
 use bokfell_render::Pipeline;
 use bokfell_theme::{PageContext, Theme};
@@ -147,11 +148,63 @@ fn builds_a_cross_referenced_site() {
             nav,
             home_url: "index.html",
             versions: &[],
+            coverage: None,
         })
         .unwrap();
     assert!(html.contains("<title>Setting Up :: Demo</title>"));
     assert!(html.contains("<a href=\"setup.html\" class=\"current\">Setup</a>"));
     assert!(html.contains("href=\"../../_/bokfell.css\""));
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn projects_coverage_onto_rendered_blocks() {
+    let root = fixture_root("coverage");
+
+    // Coverage for the index page: the title line is verified, the xref
+    // paragraph (line 4) is normative but uncovered. The included
+    // paragraph's lines belong to the partial, not the page.
+    let mut coverage = CoverageData::new();
+    coverage
+        .load_str(
+            r#"{ "coverage": {
+                "docs/modules/ROOT/pages/index.adoc": { "1": 1, "4": 0 }
+            } }"#,
+        )
+        .unwrap();
+
+    let mut catalog = ContentCatalog::new();
+    catalog.scan_source(&root).unwrap();
+    let pipeline =
+        Pipeline::new(catalog, Vec::new()).with_coverage(coverage, vec!["docs".to_string()]);
+    let site = pipeline.render_site().unwrap();
+
+    let index = site
+        .pages
+        .iter()
+        .find(|p| p.url == "demo/index.html")
+        .expect("index page rendered");
+    let setup = site
+        .pages
+        .iter()
+        .find(|p| p.url == "demo/guide/setup.html")
+        .expect("setup page rendered");
+
+    // The index has two overlay blocks (its own paragraph plus the
+    // included one); the xref paragraph is uncovered, the include-origin
+    // paragraph carries no coverage of this page's lines.
+    let index_coverage = index.coverage.as_ref().expect("index coverage");
+    assert_eq!(
+        index_coverage.blocks,
+        vec![Some(BlockStatus::Uncovered), None]
+    );
+    assert_eq!(index_coverage.verified, 1);
+    assert_eq!(index_coverage.uncovered, 1);
+    assert_eq!(index_coverage.percent_verified(), 50);
+
+    // Pages without coverage data stay overlay-free.
+    assert!(setup.coverage.is_none());
 
     std::fs::remove_dir_all(&root).ok();
 }

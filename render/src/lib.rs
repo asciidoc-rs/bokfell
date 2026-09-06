@@ -14,6 +14,7 @@
 //!
 //! [`Document::resolve_references`]: asciidoc_parser::Document::resolve_references
 
+mod blockmap;
 mod includes;
 mod inline_text;
 mod navbuild;
@@ -25,6 +26,8 @@ use asciidoc_parser::{
     parser::{HtmlInlineRenderer, ModificationContext},
     Parser, SafeMode,
 };
+pub use blockmap::client_selector as coverage_client_selector;
+use bokfell_coverage::{CoverageData, PageCoverage};
 use bokfell_model::{
     relative_url, Component, ContentCatalog, Coords, Family, NavTree, VirtualFile,
 };
@@ -62,6 +65,9 @@ pub struct RenderedPage {
     pub contents: String,
     /// Human-readable warnings collected while rendering this page.
     pub warnings: Vec<String>,
+    /// Spec coverage of this page, when coverage data was supplied and
+    /// covers it (PLAN.md §9.2).
+    pub coverage: Option<PageCoverage>,
 }
 
 /// The result of rendering a whole site.
@@ -78,11 +84,16 @@ pub struct RenderedSite {
 pub struct Pipeline {
     catalog: Arc<ContentCatalog>,
     site_attrs: Vec<(String, Option<String>)>,
+    coverage: CoverageData,
+    coverage_prefixes: Vec<String>,
 }
 
 struct ParsedPage {
     coords: Coords,
     url: String,
+    /// The parser's `primary_file_name` for this page — the name the
+    /// source map reports for the page's own (top-level) lines.
+    primary_file_name: String,
     parser: Parser,
     document: asciidoc_parser::Document<'static>,
     warnings: Vec<String>,
@@ -96,7 +107,17 @@ impl Pipeline {
         Pipeline {
             catalog: Arc::new(catalog),
             site_attrs,
+            coverage: CoverageData::new(),
+            coverage_prefixes: Vec::new(),
         }
+    }
+
+    /// Supplies spec-coverage data (PLAN.md §9.2). Pages are looked up
+    /// under each prefix in order; the first hit wins.
+    pub fn with_coverage(mut self, coverage: CoverageData, prefixes: Vec<String>) -> Self {
+        self.coverage = coverage;
+        self.coverage_prefixes = prefixes;
+        self
     }
 
     /// The catalog the pipeline renders from.
@@ -141,6 +162,7 @@ impl Pipeline {
             }
 
             let contents = asciidoc_html5::convert_document_with(&page.document, &render_options);
+            let coverage = self.page_coverage(page);
 
             pages.push(RenderedPage {
                 coords: page.coords.clone(),
@@ -149,6 +171,7 @@ impl Pipeline {
                 title_text: own.title_text.clone(),
                 contents,
                 warnings: std::mem::take(&mut page.warnings),
+                coverage,
             });
         }
 
@@ -188,6 +211,7 @@ impl Pipeline {
         Ok(ParsedPage {
             coords: file.coords.clone(),
             url,
+            primary_file_name: file.src_path.display().to_string(),
             parser,
             document,
             warnings,
@@ -301,6 +325,47 @@ impl Pipeline {
         }
 
         Ok(tree)
+    }
+
+    /// Computes a page's coverage: its line data (found under the first
+    /// matching prefix) projected onto the page's overlay blocks.
+    ///
+    /// Coverage lines refer to the page's own file, while block spans are
+    /// preprocessed-source lines; a block spliced in by `include::` is
+    /// translated out via the source map (its lines belong to another
+    /// file's coverage). A block that merely *follows* an include keeps
+    /// its translated top-level line.
+    fn page_coverage(&self, page: &ParsedPage) -> Option<PageCoverage> {
+        if self.coverage.is_empty() {
+            return None;
+        }
+        let lines = self
+            .coverage_prefixes
+            .iter()
+            .find_map(|prefix| self.coverage.page_lines(prefix, &page.coords))?;
+
+        let source_map = page.document.source_map();
+        let spans: Vec<(u32, u32)> = blockmap::overlay_blocks(&page.document)
+            .iter()
+            .map(|block| {
+                match source_map.original_file_and_line(block.start_line as usize) {
+                    // Top-level content — the map reports the page's own
+                    // file (its `primary_file_name`, or `None` when no
+                    // name was set): use the translated line.
+                    Some(origin)
+                        if origin.0.is_none()
+                            || origin.0.as_deref() == Some(&page.primary_file_name) =>
+                    {
+                        (origin.1 as u32, block.line_count)
+                    }
+                    // Include-origin content (or unmapped): no lines of
+                    // this page's coverage apply — line 0 never matches.
+                    _ => (0, 0),
+                }
+            })
+            .collect();
+
+        Some(PageCoverage::from_lines(lines, &spans))
     }
 
     fn component_of(&self, coords: &Coords) -> Result<&Component, RenderError> {

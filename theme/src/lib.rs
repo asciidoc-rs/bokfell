@@ -19,6 +19,14 @@ const DEFAULT_CSS: &str = include_str!("../assets/bokfell.css");
 /// The URL of the published stylesheet, relative to the site root.
 const CSS_URL: &str = "_/bokfell.css";
 
+/// The embedded coverage-overlay script, published as
+/// `_/bokfell-coverage.js`.
+const COVERAGE_JS: &str = include_str!("../assets/bokfell-coverage.js");
+
+/// The URL of the published coverage-overlay script, relative to the site
+/// root.
+const COVERAGE_JS_URL: &str = "_/bokfell-coverage.js";
+
 /// Errors from theme loading or page composition.
 #[derive(Debug, thiserror::Error)]
 pub enum ThemeError {
@@ -57,6 +65,37 @@ pub struct PageContext<'a> {
     /// This page in every version of its component, highest first. The
     /// selector renders only when there is more than one entry.
     pub versions: &'a [VersionLink],
+    /// The page's spec coverage, when coverage data covers it (PLAN.md
+    /// §9.2). `None` renders no badge, payload, or script.
+    pub coverage: Option<CoverageView>,
+}
+
+/// The spec-coverage presentation of one page (PLAN.md §9.2).
+#[derive(Clone, Debug)]
+pub struct CoverageView {
+    /// Percentage of the page's normative lines that are verified (0–100).
+    pub percent: u32,
+    /// Count of verified normative lines.
+    pub verified: usize,
+    /// Count of normative-but-uncovered lines.
+    pub uncovered: usize,
+    /// The JSON payload for the client overlay script: the block-pairing
+    /// selector plus per-block status tokens in document order. Must be
+    /// safe to embed in a `<script>` element (no `<`; serialize with
+    /// `<` escapes).
+    pub data_json: String,
+    /// Site-root-relative URL of the coverage dashboard page.
+    pub dashboard_url: String,
+}
+
+/// The badge color band for a coverage percentage
+/// (`high` ≥ 90, `mid` ≥ 50, `low` below).
+pub fn coverage_level(percent: u32) -> &'static str {
+    match percent {
+        90.. => "high",
+        50.. => "mid",
+        _ => "low",
+    }
 }
 
 /// One entry of the page-version selector.
@@ -118,6 +157,17 @@ impl Theme {
             versions_html => versions_html(ctx.versions, ctx.url),
             css_href => escape_html(&relative_url(ctx.url, CSS_URL)),
             home_href => escape_html(&relative_url(ctx.url, ctx.home_url)),
+            coverage => ctx.coverage.as_ref().map(|cov| context! {
+                percent => cov.percent,
+                verified => cov.verified,
+                uncovered => cov.uncovered,
+                level => coverage_level(cov.percent),
+                data_json => cov.data_json.clone(),
+                dashboard_href =>
+                    escape_html(&relative_url(ctx.url, &cov.dashboard_url)),
+                script_href =>
+                    escape_html(&relative_url(ctx.url, COVERAGE_JS_URL)),
+            }),
         })?;
 
         Ok(html)
@@ -125,7 +175,10 @@ impl Theme {
 
     /// The theme's static assets as `(site-root-relative path, bytes)`.
     pub fn assets(&self) -> Vec<(String, Vec<u8>)> {
-        vec![(CSS_URL.to_string(), DEFAULT_CSS.as_bytes().to_vec())]
+        vec![
+            (CSS_URL.to_string(), DEFAULT_CSS.as_bytes().to_vec()),
+            (COVERAGE_JS_URL.to_string(), COVERAGE_JS.as_bytes().to_vec()),
+        ]
     }
 
     /// A minimal redirect page (used for the site root → start page hop).
@@ -222,7 +275,9 @@ fn render_items(items: &[NavItem], page_url: &str, out: &mut String) {
     out.push_str("</ul>\n");
 }
 
-fn escape_html(text: &str) -> String {
+/// Escapes `&`, `<`, `>`, and `"` for embedding text in HTML (element
+/// content or a double-quoted attribute).
+pub fn escape_html(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
@@ -273,6 +328,7 @@ mod tests {
                 nav: &nav,
                 home_url: "index.html",
                 versions: &[],
+                coverage: None,
             })
             .unwrap();
 
@@ -288,6 +344,66 @@ mod tests {
 
         // The stylesheet link climbs to the site root.
         assert!(html.contains("href=\"../../_/bokfell.css\""));
+
+        // No coverage → no badge, payload, or overlay script.
+        assert!(!html.contains("coverage-badge"));
+        assert!(!html.contains("bokfell-cov-data"));
+        assert!(!html.contains("bokfell-coverage.js"));
+    }
+
+    #[test]
+    fn composes_the_coverage_badge_and_payload() {
+        let theme = Theme::default_theme().unwrap();
+        let html = theme
+            .compose_page(&PageContext {
+                site_title: "Demo",
+                url: "demo/guide/page.html",
+                title_html: None,
+                title_text: Some("Page"),
+                contents: "<div class=\"paragraph\"><p>Body.</p></div>",
+                nav: &NavTree::default(),
+                home_url: "index.html",
+                versions: &[],
+                coverage: Some(CoverageView {
+                    percent: 67,
+                    verified: 2,
+                    uncovered: 1,
+                    data_json: "{\"selector\":\".paragraph\",\"blocks\":[\"verified\"]}"
+                        .to_string(),
+                    dashboard_url: "coverage.html".to_string(),
+                }),
+            })
+            .unwrap();
+
+        // Badge with the mid-band color class and the dashboard link,
+        // relativized from the page.
+        assert!(html.contains("coverage-badge cov-mid"), "html: {html}");
+        assert!(html.contains(">67% verified</button>"));
+        assert!(html.contains("<a href=\"../../coverage.html\">all pages</a>"));
+
+        // The JSON payload is embedded verbatim and the overlay script is
+        // referenced relative to the page.
+        assert!(html.contains(
+            "<script type=\"application/json\" id=\"bokfell-cov-data\">\
+             {\"selector\":\".paragraph\",\"blocks\":[\"verified\"]}</script>"
+        ));
+        assert!(html.contains("<script src=\"../../_/bokfell-coverage.js\" defer></script>"));
+
+        // The script ships as a theme asset.
+        assert!(theme
+            .assets()
+            .iter()
+            .any(|(url, _)| url == "_/bokfell-coverage.js"));
+    }
+
+    #[test]
+    fn coverage_levels_band_correctly() {
+        assert_eq!(coverage_level(100), "high");
+        assert_eq!(coverage_level(90), "high");
+        assert_eq!(coverage_level(89), "mid");
+        assert_eq!(coverage_level(50), "mid");
+        assert_eq!(coverage_level(49), "low");
+        assert_eq!(coverage_level(0), "low");
     }
 
     #[test]

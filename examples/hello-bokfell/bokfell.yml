@@ -12,5 +12,13 @@ content:
   sources:
     - path: docs
 
+      # Spec-coverage demo: hand-written per-line data for the home page
+      # (in real projects this JSON comes from a test-coverage tool such
+      # as asciidoc-rs's `sdd`). It puts a "60% verified" badge on the
+      # page; click it to shade each block by verification status, and
+      # see /coverage.html for the site-wide rollup.
+      coverage:
+        - spec-coverage.json
+
 output:
   dir: build/site
