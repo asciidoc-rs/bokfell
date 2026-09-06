@@ -464,6 +464,10 @@ Ordered to dogfood early and keep every milestone shippable:
   theme → static site with nav, start page, 404. **Exit criterion: builds
   `asciidoc-html5`'s `docs/` component and replaces its
   `antora-playbook-local.yml`/npm toolchain for local preview.**
+  *Core done (2026-09-06): `bokfell build` renders that component's 37
+  pages with resolved cross-module xrefs, catalog includes, per-page
+  navigation, and the default theme; remaining inside M1's umbrella: a 404
+  page and richer nav labels (formatted text).*
 - **M2 — Serve + live reload.** Watcher, change classification, incremental
   recompose vs re-render, WebSocket reload. Exit: sub-second edit→reload on
   the dogfood site.

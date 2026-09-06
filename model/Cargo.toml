@@ -9,3 +9,8 @@ version.workspace = true
 
 # Not ready for crates.io; flipped deliberately when 0.1 ships.
 publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_norway = "0.9"
+thiserror = "2"

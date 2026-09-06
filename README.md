@@ -25,12 +25,40 @@ have:
 
 ## Status
 
-**Pre-alpha.** This repository currently holds the workspace skeleton, CI,
-and the founding plan; nothing is implemented yet. See [`PLAN.md`](PLAN.md)
-for the architecture, the design of the three differentiators, and the
-milestone roadmap, and [`CLAUDE.md`](CLAUDE.md) for contributor conventions
-(including important license boundaries around code borrowed from other
-site generators).
+**Pre-alpha.** The M1 single-component pipeline works: `bokfell build`
+takes a playbook, scans an Antora-compatible content source, resolves
+cross-references and includes site-wide, and publishes a themed static
+site. Multi-repo aggregation, versions, live preview, diffs, and coverage
+overlays are still to come — see [`PLAN.md`](PLAN.md) for the architecture
+and milestone roadmap, and [`CLAUDE.md`](CLAUDE.md) for contributor
+conventions (including important license boundaries around code borrowed
+from other site generators).
+
+## Building a site
+
+Point a playbook at one or more content source roots (directories holding
+an `antora.yml` and a `modules/` tree):
+
+```yaml
+# bokfell.yml
+site:
+  title: AsciiDoc HTML5
+  start_page: html5::index.adoc
+content:
+  sources:
+    - path: ../asciidoc-html5/docs
+output:
+  dir: build/site
+```
+
+Then:
+
+```sh
+bokfell build            # or: bokfell build -p path/to/bokfell.yml
+```
+
+The site lands in `output.dir` with a root `index.html` redirecting to the
+start page. `--theme <dir>` overrides the built-in layout per file.
 
 ## License
 

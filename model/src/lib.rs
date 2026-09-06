@@ -1,6 +1,24 @@
 //! Content model for the Bokfell documentation site generator.
 //!
-//! This crate will hold the playbook and `antora.yml` parsers, the
-//! component/version/module/family model, resource IDs, the content
-//! catalog (virtual files, output paths, URLs), and the navigation
-//! model. See `PLAN.md` §6 at the workspace root.
+//! This crate holds the pieces of the pipeline that know what a site *is*
+//! without knowing how it is rendered: the playbook and `antora.yml`
+//! descriptors, the component/version/module/family coordinate system,
+//! resource IDs, the content catalog (files, output paths, URLs), and the
+//! navigation model. See `PLAN.md` §5–§6 at the workspace root.
+//!
+//! Repository-side formats stay Antora-compatible: the standard directory
+//! set (`antora.yml` + `modules/<module>/<family>/`), resource IDs, and the
+//! URL construction rules follow Antora's documented behavior so content
+//! written for Antora builds unchanged.
+
+mod catalog;
+mod descriptor;
+mod nav;
+mod playbook;
+mod resource;
+
+pub use catalog::{CatalogError, Component, ContentCatalog, Coords, VirtualFile};
+pub use descriptor::{AsciiDocConfig, ComponentDescriptor, DescriptorError};
+pub use nav::{NavItem, NavTree};
+pub use playbook::{Playbook, PlaybookError};
+pub use resource::{relative_url, Family, ResourceRef};

@@ -1,0 +1,293 @@
+/* Bokfell default theme. */
+
+:root {
+  --bf-bg: #ffffff;
+  --bf-fg: #1c1e21;
+  --bf-muted: #57606a;
+  --bf-accent: #205b8a;
+  --bf-border: #d8dde3;
+  --bf-nav-bg: #f6f8fa;
+  --bf-code-bg: #f0f2f4;
+  --bf-mark-bg: #fff2b2;
+  --bf-note: #2f6f9f;
+  --bf-tip: #2e7d5b;
+  --bf-warn: #b7791f;
+  --bf-caution: #c05621;
+  --bf-important: #b5352f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bf-bg: #14171a;
+    --bf-fg: #dfe4e8;
+    --bf-muted: #9aa4ae;
+    --bf-accent: #6cb1e2;
+    --bf-border: #333a41;
+    --bf-nav-bg: #1a1e22;
+    --bf-code-bg: #21262b;
+    --bf-mark-bg: #6b5d13;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { height: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bf-bg);
+  color: var(--bf-fg);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+a { color: var(--bf-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Chrome ─────────────────────────────────────────────────────────── */
+
+.site-header {
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--bf-border);
+  background: var(--bf-nav-bg);
+}
+
+.site-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--bf-fg);
+}
+
+.site-body {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+  max-width: 90rem;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.site-footer {
+  border-top: 1px solid var(--bf-border);
+  padding: 0.5rem 1.25rem;
+  color: var(--bf-muted);
+  font-size: 0.85rem;
+}
+
+/* ── Navigation ─────────────────────────────────────────────────────── */
+
+.site-nav {
+  flex: 0 0 17rem;
+  border-right: 1px solid var(--bf-border);
+  background: var(--bf-nav-bg);
+  padding: 1.25rem 1rem 2rem;
+  font-size: 0.92rem;
+  overflow-y: auto;
+}
+
+.site-nav ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 0.9rem;
+}
+
+.site-nav > ul { padding-left: 0; }
+
+.site-nav li { margin: 0.15rem 0; }
+
+.site-nav a {
+  color: var(--bf-fg);
+  display: block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+.site-nav a:hover {
+  background: var(--bf-border);
+  text-decoration: none;
+}
+
+.site-nav a.current {
+  background: var(--bf-accent);
+  color: var(--bf-bg);
+  font-weight: 600;
+}
+
+.site-nav .nav-heading {
+  display: block;
+  margin-top: 0.6rem;
+  font-weight: 700;
+  color: var(--bf-muted);
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+/* ── Article ────────────────────────────────────────────────────────── */
+
+.doc {
+  flex: 1;
+  min-width: 0;
+  padding: 1.75rem 2.5rem 4rem;
+}
+
+.doc article { max-width: 46rem; }
+
+.page-title {
+  font-size: 1.9rem;
+  line-height: 1.25;
+  margin: 0 0 1.2rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--bf-border);
+}
+
+.doc h2 { font-size: 1.45rem; margin: 2rem 0 0.75rem; }
+.doc h3 { font-size: 1.2rem; margin: 1.6rem 0 0.6rem; }
+.doc h4 { font-size: 1.05rem; margin: 1.4rem 0 0.5rem; }
+
+.doc .sectionbody > .paragraph:first-child p { margin-top: 0; }
+
+/* Asciidoctor block shapes. */
+
+.doc .paragraph p { margin: 0.75rem 0; }
+
+.doc pre {
+  background: var(--bf-code-bg);
+  border: 1px solid var(--bf-border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  font-size: 0.88em;
+  line-height: 1.45;
+}
+
+.doc code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
+  font-size: 0.92em;
+  background: var(--bf-code-bg);
+  border-radius: 3px;
+  padding: 0.08em 0.3em;
+}
+
+.doc pre code {
+  background: none;
+  padding: 0;
+  font-size: 1em;
+}
+
+.doc .title {
+  color: var(--bf-muted);
+  font-style: italic;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+}
+
+.doc .admonitionblock {
+  margin: 1rem 0;
+  border: 1px solid var(--bf-border);
+  border-left-width: 4px;
+  border-radius: 4px;
+}
+
+.doc .admonitionblock table { border-collapse: collapse; width: 100%; }
+.doc .admonitionblock td.icon { padding: 0.6rem 0 0.6rem 0.9rem; width: 1%; white-space: nowrap; font-weight: 700; text-transform: uppercase; font-size: 0.78rem; vertical-align: top; }
+.doc .admonitionblock td.content { padding: 0.6rem 0.9rem; }
+.doc .admonitionblock td.content .paragraph:first-child p { margin-top: 0; }
+.doc .admonitionblock td.content .paragraph:last-child p { margin-bottom: 0; }
+
+.doc .admonitionblock.note { border-left-color: var(--bf-note); }
+.doc .admonitionblock.note td.icon { color: var(--bf-note); }
+.doc .admonitionblock.tip { border-left-color: var(--bf-tip); }
+.doc .admonitionblock.tip td.icon { color: var(--bf-tip); }
+.doc .admonitionblock.warning { border-left-color: var(--bf-warn); }
+.doc .admonitionblock.warning td.icon { color: var(--bf-warn); }
+.doc .admonitionblock.caution { border-left-color: var(--bf-caution); }
+.doc .admonitionblock.caution td.icon { color: var(--bf-caution); }
+.doc .admonitionblock.important { border-left-color: var(--bf-important); }
+.doc .admonitionblock.important td.icon { color: var(--bf-important); }
+
+.doc table.tableblock {
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.95em;
+}
+
+.doc table.tableblock th,
+.doc table.tableblock td {
+  border: 1px solid var(--bf-border);
+  padding: 0.4rem 0.7rem;
+  vertical-align: top;
+}
+
+.doc table.tableblock th { background: var(--bf-nav-bg); }
+.doc table.tableblock p { margin: 0; }
+
+.doc .quoteblock,
+.doc .verseblock {
+  margin: 1rem 0;
+  padding: 0.25rem 1.1rem;
+  border-left: 4px solid var(--bf-border);
+  color: var(--bf-muted);
+}
+
+.doc .quoteblock .attribution,
+.doc .verseblock .attribution {
+  font-size: 0.85rem;
+  margin-top: 0.4rem;
+}
+
+.doc .exampleblock > .content {
+  border: 1px solid var(--bf-border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+}
+
+.doc .sidebarblock {
+  background: var(--bf-nav-bg);
+  border-radius: 6px;
+  padding: 0.9rem 1.1rem;
+  margin: 1rem 0;
+}
+
+.doc .imageblock { margin: 1rem 0; }
+.doc .imageblock img { max-width: 100%; }
+
+.doc ul, .doc ol { padding-left: 1.6rem; }
+.doc li > p { margin: 0.25rem 0; }
+
+.doc .dlist dt { font-weight: 600; margin-top: 0.6rem; }
+.doc .dlist dd { margin-left: 1.25rem; }
+
+.doc hr {
+  border: none;
+  border-top: 1px solid var(--bf-border);
+  margin: 2rem 0;
+}
+
+.doc mark { background: var(--bf-mark-bg); }
+
+.doc #footnotes {
+  margin-top: 2.5rem;
+  font-size: 0.88em;
+  color: var(--bf-muted);
+}
+
+/* Verbatim unsupported-construct markers stay visible during early
+   renderer development. */
+.doc .unsupported { color: var(--bf-important); }
+
+@media (max-width: 60rem) {
+  .site-body { flex-direction: column; }
+  .site-nav {
+    flex: none;
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--bf-border);
+  }
+  .doc { padding: 1.25rem 1.25rem 3rem; }
+}
