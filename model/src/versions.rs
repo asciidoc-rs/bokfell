@@ -48,8 +48,38 @@ struct SemverKey {
 enum PreId {
     /// Numeric identifiers compare numerically and rank below
     /// alphanumeric ones (the variant order encodes that).
-    Numeric(u64),
+    Numeric(NumericId),
     Alpha(String),
+}
+
+/// An arbitrary-precision numeric prerelease identifier, kept as its
+/// digit string (leading zeros stripped) — semver puts no size limit on
+/// numeric identifiers, so parsing into a fixed-width integer would
+/// misclassify large ones as alphanumeric. Shorter digit strings are
+/// numerically smaller; equal lengths compare digit-wise.
+#[derive(Debug, Eq, PartialEq)]
+struct NumericId(String);
+
+impl NumericId {
+    fn new(digits: &str) -> Self {
+        let stripped = digits.trim_start_matches('0');
+        NumericId(if stripped.is_empty() { "0" } else { stripped }.to_string())
+    }
+}
+
+impl Ord for NumericId {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0
+            .len()
+            .cmp(&other.0.len())
+            .then_with(|| self.0.cmp(&other.0))
+    }
+}
+
+impl PartialOrd for NumericId {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Ord for SemverKey {
@@ -98,9 +128,12 @@ fn parse_semver(version: &str) -> Option<SemverKey> {
 
     let prerelease = prerelease.map(|pre| {
         pre.split('.')
-            .map(|id| match id.parse::<u64>() {
-                Ok(n) => PreId::Numeric(n),
-                Err(_) => PreId::Alpha(id.to_string()),
+            .map(|id| {
+                if !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()) {
+                    PreId::Numeric(NumericId::new(id))
+                } else {
+                    PreId::Alpha(id.to_string())
+                }
             })
             .collect()
     });
@@ -203,6 +236,23 @@ mod tests {
         // Build metadata never affects precedence.
         assert_eq!(
             version_order(Some("1.0.0+build.5"), Some("1.0.0+build.9")),
+            std::cmp::Ordering::Equal
+        );
+
+        // Numeric identifiers are arbitrary-precision: values beyond u64
+        // still compare numerically, not lexically.
+        assert_eq!(
+            sorted(vec![
+                Some("1.0.0-99999999999999999999999999"),
+                Some("1.0.0-100000000000000000000000000"),
+            ]),
+            vec![
+                Some("1.0.0-100000000000000000000000000"),
+                Some("1.0.0-99999999999999999999999999"),
+            ]
+        );
+        assert_eq!(
+            version_order(Some("1.0.0-007"), Some("1.0.0-7")),
             std::cmp::Ordering::Equal
         );
     }
