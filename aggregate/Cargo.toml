@@ -9,3 +9,12 @@ version.workspace = true
 
 # Not ready for crates.io; flipped deliberately when 0.1 ships.
 publish = false
+
+[dependencies]
+bokfell-model = { path = "../model", version = "0.1.0" }
+gix = { version = "0.87", default-features = false, features = [
+    "sha1",
+    "blocking-network-client",
+    "blocking-http-transport-reqwest-native-tls",
+] }
+thiserror = "2"

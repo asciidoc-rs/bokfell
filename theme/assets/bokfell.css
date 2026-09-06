@@ -126,6 +126,36 @@ a:hover { text-decoration: underline; }
   letter-spacing: 0.04em;
 }
 
+.page-versions {
+  margin: 0 0 0.9rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--bf-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+}
+
+.page-versions a,
+.page-versions span {
+  padding: 0.05rem 0.5rem;
+  border: 1px solid var(--bf-border);
+  border-radius: 10px;
+  color: var(--bf-fg);
+}
+
+.page-versions .current {
+  background: var(--bf-accent);
+  border-color: var(--bf-accent);
+  color: var(--bf-bg);
+  font-weight: 600;
+}
+
+.page-versions .missing {
+  color: var(--bf-muted);
+  border-style: dashed;
+}
+
 /* ── Article ────────────────────────────────────────────────────────── */
 
 .doc {

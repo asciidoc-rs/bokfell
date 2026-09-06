@@ -69,8 +69,9 @@ pub struct RenderedPage {
 pub struct RenderedSite {
     /// Every rendered page.
     pub pages: Vec<RenderedPage>,
-    /// One navigation tree per component, in catalog order.
-    pub navs: Vec<(String, NavTree)>,
+    /// One navigation tree per component *version*, in catalog order,
+    /// keyed by `(component name, version)`.
+    pub navs: Vec<((String, Option<String>), NavTree)>,
 }
 
 /// The render pipeline over one content catalog.
@@ -151,11 +152,14 @@ impl Pipeline {
             });
         }
 
-        // Navigation trees, one per component.
+        // Navigation trees, one per component version.
         let mut navs = Vec::new();
         for component in self.catalog.components() {
             let tree = self.build_nav(component, &index)?;
-            navs.push((component.desc.name.clone(), tree));
+            navs.push((
+                (component.desc.name.clone(), component.desc.version.clone()),
+                tree,
+            ));
         }
 
         Ok(RenderedSite { pages, navs })
@@ -266,7 +270,10 @@ impl Pipeline {
         let nav_files: Vec<VirtualFile> = self
             .catalog
             .files_of(Family::Nav)
-            .filter(|f| f.coords.component == component.desc.name)
+            .filter(|f| {
+                f.coords.component == component.desc.name
+                    && f.coords.version == component.desc.version
+            })
             .cloned()
             .collect();
 

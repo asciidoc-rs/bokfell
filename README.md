@@ -30,8 +30,11 @@ takes a playbook, scans an Antora-compatible content source, resolves
 cross-references and includes site-wide, and publishes a themed static
 site — and `bokfell serve` runs the same build into memory behind a
 watching dev server with live browser reload (~150 ms rebuilds on a
-37-page site). Multi-repo aggregation, versions, diffs, coverage
-overlays, and click-to-source editing are still to come — see [`PLAN.md`](PLAN.md) for the architecture
+37-page site). Content sources can be git repositories: matched branches
+and tags become component versions (bare cache clones, no checkouts),
+with Antora's version ordering, latest-version routing, and a per-page
+version selector. Diffs, coverage overlays, and click-to-source editing
+are still to come — see [`PLAN.md`](PLAN.md) for the architecture
 and milestone roadmap, and [`CLAUDE.md`](CLAUDE.md) for contributor
 conventions (including important license boundaries around code borrowed
 from other site generators).
@@ -48,7 +51,12 @@ site:
   start_page: html5::index.adoc
 content:
   sources:
-    - path: ../asciidoc-html5/docs
+    - path: ../asciidoc-html5/docs   # a plain directory…
+    - url: https://github.com/asciidoc-rs/asciidoc-html5
+      branches: [main]               # …or a git repo: refs become versions
+      tags: ['asciidoc-html5-v*']
+      start_path: docs
+      version_from_ref: true
 output:
   dir: build/site
 ```

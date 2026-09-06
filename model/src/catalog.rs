@@ -93,6 +93,15 @@ impl Component {
     pub fn attribute_seeds(&self) -> Vec<(String, Option<String>)> {
         self.desc.asciidoc.attribute_seeds()
     }
+
+    /// Whether this component version is marked prerelease (`prerelease:`
+    /// set to anything but `false`/`null` in `antora.yml`).
+    pub fn is_prerelease(&self) -> bool {
+        !matches!(
+            &self.desc.prerelease,
+            None | Some(serde_norway::Value::Null) | Some(serde_norway::Value::Bool(false))
+        )
+    }
 }
 
 /// The content catalog.
@@ -112,11 +121,25 @@ impl ContentCatalog {
     /// Scans one content source root (a directory containing `antora.yml`
     /// and `modules/`) into the catalog.
     pub fn scan_source(&mut self, root: &Path) -> Result<(), CatalogError> {
+        self.scan_source_versioned(root, None)
+    }
+
+    /// Like [`scan_source`](Self::scan_source), with the component version
+    /// overridden (used when the version derives from the git ref a source
+    /// was aggregated from rather than from `antora.yml`).
+    pub fn scan_source_versioned(
+        &mut self,
+        root: &Path,
+        version_override: Option<&str>,
+    ) -> Result<(), CatalogError> {
         let descriptor_path = root.join("antora.yml");
         if !descriptor_path.is_file() {
             return Err(CatalogError::MissingDescriptor(root.to_path_buf()));
         }
-        let desc = ComponentDescriptor::load(&descriptor_path)?;
+        let mut desc = ComponentDescriptor::load(&descriptor_path)?;
+        if let Some(version) = version_override {
+            desc.version = Some(version.to_string());
+        }
 
         let component = Component {
             desc,
@@ -283,9 +306,49 @@ impl ContentCatalog {
         Some(segments.join("/"))
     }
 
-    /// The registered components, in scan order.
+    /// The registered component versions, in scan order.
     pub fn components(&self) -> &[Component] {
         &self.components
+    }
+
+    /// The versions of one component, highest (per the display order) first.
+    pub fn versions_of(&self, name: &str) -> Vec<&Component> {
+        let mut versions: Vec<&Component> = self
+            .components
+            .iter()
+            .filter(|c| c.desc.name == name)
+            .collect();
+        versions.sort_by(|a, b| {
+            crate::versions::version_order(a.desc.version.as_deref(), b.desc.version.as_deref())
+        });
+        versions
+    }
+
+    /// The latest version of a component: the first non-prerelease in
+    /// display order, else the first prerelease.
+    pub fn latest_of(&self, name: &str) -> Option<&Component> {
+        let versions = self.versions_of(name);
+        versions
+            .iter()
+            .find(|c| !c.is_prerelease())
+            .or_else(|| versions.first())
+            .copied()
+    }
+
+    /// Every version of the page (or other resource) at `coords`: each of
+    /// the component's versions, highest first, paired with that version's
+    /// matching file when it exists.
+    pub fn versions_of_resource(&self, coords: &Coords) -> Vec<(&Component, Option<&VirtualFile>)> {
+        self.versions_of(&coords.component)
+            .into_iter()
+            .map(|component| {
+                let candidate = Coords {
+                    version: component.desc.version.clone(),
+                    ..coords.clone()
+                };
+                (component, self.get(&candidate))
+            })
+            .collect()
     }
 
     /// All cataloged files.

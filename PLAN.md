@@ -484,6 +484,13 @@ Ordered to dogfood early and keep every milestone shippable:
   selector UI, redirects, sitemap, edit links. Exit: an aggregated
   asciidoc-rs site (parser + html5 + generator docs) with at least two
   versions of one component.
+  *Core done (2026-09-06): git content sources via gix (bare cache clones,
+  ref patterns with glob/negation/`HEAD`, commit-keyed tree exports),
+  refname-derived versions, the Antora version sort/latest rules, and the
+  page-version selector — demonstrated by building two versions of the
+  asciidoc-html5 docs component straight from its repository. Still inside
+  M3's umbrella: worktree overlays for serve, redirects, sitemap, edit
+  links, and remote-auth polish.*
 - **M4 — Coverage overlays.** Coverage format + reader, `bokfell coverage`
   scanner (ported/generalized `sdd`), per-page overlay + rollups + dashboard.
   Exit: the dogfood site displays live verification status for these repos'

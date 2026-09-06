@@ -12,6 +12,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+bokfell-aggregate = { path = "../aggregate", version = "0.1.0" }
 bokfell-model = { path = "../model", version = "0.1.0" }
 bokfell-render = { path = "../render", version = "0.1.0" }
 bokfell-serve = { path = "../serve", version = "0.1.0" }

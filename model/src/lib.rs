@@ -16,9 +16,11 @@ mod descriptor;
 mod nav;
 mod playbook;
 mod resource;
+mod versions;
 
 pub use catalog::{CatalogError, Component, ContentCatalog, Coords, VirtualFile};
 pub use descriptor::{AsciiDocConfig, ComponentDescriptor, DescriptorError};
 pub use nav::{NavItem, NavTree};
-pub use playbook::{Playbook, PlaybookError};
+pub use playbook::{Playbook, PlaybookError, RuntimeConfig, SourceConfig};
 pub use resource::{relative_url, Family, ResourceRef};
+pub use versions::{version_from_refname, version_order};

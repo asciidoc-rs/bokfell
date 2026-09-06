@@ -146,6 +146,7 @@ fn builds_a_cross_referenced_site() {
             contents: &setup.contents,
             nav,
             home_url: "index.html",
+            versions: &[],
         })
         .unwrap();
     assert!(html.contains("<title>Setting Up :: Demo</title>"));
