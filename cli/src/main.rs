@@ -13,7 +13,7 @@ use std::{
 
 use anyhow::{bail, Context};
 use bokfell_aggregate::{Aggregator, GitSource};
-use bokfell_coverage::{BlockStatus, CoverageData, PageCoverage};
+use bokfell_coverage::{BlockStatus, CoverageData, CoverageScope, PageCoverage};
 use bokfell_model::{relative_url, ContentCatalog, Coords, Family, NavTree, Playbook, ResourceRef};
 use bokfell_render::{Pipeline, RenderedPage};
 use bokfell_theme::{coverage_level, escape_html, CoverageView, PageContext, Theme, VersionLink};
@@ -115,72 +115,76 @@ fn compose_site(
     let aggregator = Aggregator::new(cache_dir, fetch || playbook.runtime.fetch);
 
     let mut catalog = ContentCatalog::new();
+    let mut coverage_scopes: Vec<CoverageScope> = Vec::new();
     for source in &playbook.content.sources {
         source.validate().map_err(anyhow::Error::msg)?;
 
+        // The component versions this source contributes, so its coverage
+        // (if any) applies to exactly those pages and no others.
+        let mut contributed: Vec<(String, Option<String>)> = Vec::new();
+
         if let Some(path) = &source.path {
             let root = playbook.resolve_path(path);
-            catalog
+            let key = catalog
                 .scan_source(&root)
                 .with_context(|| format!("scanning content source {}", root.display()))?;
-            continue;
+            contributed.push(key);
+        } else {
+            // A git source: aggregate each matched ref into a content
+            // root.
+            let url = source.url.clone().expect("validated: url set");
+            let url = {
+                // Relative local paths resolve against the playbook.
+                let as_path = Path::new(&url);
+                if as_path.is_relative() && playbook.resolve_path(as_path).join(".git").exists() {
+                    playbook.resolve_path(as_path).display().to_string()
+                } else {
+                    url
+                }
+            };
+            let git_source = GitSource {
+                url: url.clone(),
+                branches: source.branches.clone(),
+                tags: source.tags.clone(),
+                start_path: source.start_path.clone(),
+                version_from_ref: source.version_from_ref,
+            };
+            let roots = aggregator.collect(&git_source)?;
+            for root in roots {
+                let key = catalog
+                    .scan_source_versioned(&root.path, root.version_override.as_deref())
+                    .with_context(|| {
+                        format!(
+                            "scanning {} ref {} ({})",
+                            url,
+                            root.refname,
+                            root.path.display()
+                        )
+                    })?;
+                contributed.push(key);
+            }
         }
 
-        // A git source: aggregate each matched ref into a content root.
-        let url = source.url.clone().expect("validated: url set");
-        let url = {
-            // Relative local paths resolve against the playbook.
-            let as_path = Path::new(&url);
-            if as_path.is_relative() && playbook.resolve_path(as_path).join(".git").exists() {
-                playbook.resolve_path(as_path).display().to_string()
-            } else {
-                url
+        // Spec coverage (PLAN.md §9.2), scoped to this source's component
+        // versions.
+        if !source.coverage.is_empty() {
+            let mut data = CoverageData::new();
+            for file in &source.coverage {
+                data.load(&playbook.resolve_path(file))?;
             }
-        };
-        let git_source = GitSource {
-            url: url.clone(),
-            branches: source.branches.clone(),
-            tags: source.tags.clone(),
-            start_path: source.start_path.clone(),
-            version_from_ref: source.version_from_ref,
-        };
-        let roots = aggregator.collect(&git_source)?;
-        for root in roots {
-            catalog
-                .scan_source_versioned(&root.path, root.version_override.as_deref())
-                .with_context(|| {
-                    format!(
-                        "scanning {} ref {} ({})",
-                        url,
-                        root.refname,
-                        root.path.display()
-                    )
-                })?;
+            coverage_scopes.push(CoverageScope {
+                data,
+                prefix: source.effective_coverage_prefix(),
+                components: contributed,
+            });
         }
     }
     if catalog.components().is_empty() {
         bail!("no components found in the playbook's content sources");
     }
 
-    // Spec coverage (PLAN.md §9.2): merge every source's coverage files;
-    // pages look up their lines under each distinct prefix, first hit
-    // wins.
-    let mut coverage = CoverageData::new();
-    let mut coverage_prefixes: Vec<String> = Vec::new();
-    for source in &playbook.content.sources {
-        for file in &source.coverage {
-            coverage.load(&playbook.resolve_path(file))?;
-        }
-        if !source.coverage.is_empty() {
-            let prefix = source.effective_coverage_prefix();
-            if !coverage_prefixes.contains(&prefix) {
-                coverage_prefixes.push(prefix);
-            }
-        }
-    }
-
-    let pipeline = Pipeline::new(catalog, playbook.asciidoc.attribute_seeds())
-        .with_coverage(coverage, coverage_prefixes);
+    let pipeline =
+        Pipeline::new(catalog, playbook.asciidoc.attribute_seeds()).with_coverage(coverage_scopes);
     let site = pipeline.render_site()?;
     let theme = Theme::load(theme_dir)?;
 
@@ -241,7 +245,17 @@ fn compose_site(
 
     // The site-wide coverage dashboard, when any page carries coverage.
     let covered: Vec<&RenderedPage> = site.pages.iter().filter(|p| p.coverage.is_some()).collect();
-    if !covered.is_empty() {
+    if covered.iter().any(|p| p.url == COVERAGE_DASHBOARD_URL)
+        || site.pages.iter().any(|p| p.url == COVERAGE_DASHBOARD_URL)
+    {
+        // An authored page owns the dashboard URL (a versionless ROOT
+        // component can publish `coverage.adoc` there); never overwrite
+        // authored content with generated output.
+        eprintln!(
+            "warning: skipping the generated coverage dashboard: an authored page \
+             already publishes at {COVERAGE_DASHBOARD_URL}"
+        );
+    } else if !covered.is_empty() {
         let contents = coverage_dashboard(&covered);
         let html = theme.compose_page(&PageContext {
             site_title: &playbook.site.title,

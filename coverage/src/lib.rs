@@ -132,8 +132,10 @@ impl CoverageData {
                     .map_err(|_| format!("{file}: bad line number {line:?}"))?;
                 let status = match status.as_u64() {
                     Some(0) => LineStatus::Uncovered,
-                    Some(_) => LineStatus::Verified,
-                    None => return Err(format!("{file}: bad status for line {line}")),
+                    Some(1) => LineStatus::Verified,
+                    // Anything else is malformed: accepting it would
+                    // silently inflate (or deflate) percentages.
+                    _ => return Err(format!("{file}: bad status for line {line}")),
                 };
                 match entry.get(&line) {
                     Some(LineStatus::Verified) => {}
@@ -163,6 +165,29 @@ impl CoverageData {
             )
         };
         self.files.get(&key)
+    }
+}
+
+/// One content source's coverage, scoped to the component versions that
+/// source contributed to the catalog: pages of other components (or other
+/// versions of the same component) never read it, so identical
+/// prefix-plus-path keys in two sources cannot contaminate each other.
+#[derive(Debug, Default)]
+pub struct CoverageScope {
+    /// The source's merged coverage data.
+    pub data: CoverageData,
+    /// The path prefix the source's coverage keys start with.
+    pub prefix: String,
+    /// The `(component name, version)` keys this coverage applies to.
+    pub components: Vec<(String, Option<String>)>,
+}
+
+impl CoverageScope {
+    /// Whether this scope covers the given component version.
+    pub fn applies_to(&self, component: &str, version: Option<&str>) -> bool {
+        self.components
+            .iter()
+            .any(|(name, v)| name == component && v.as_deref() == version)
     }
 }
 
@@ -312,5 +337,14 @@ mod tests {
         let mut data = CoverageData::new();
         assert!(data.load_str("{}").is_err());
         assert!(data.load_str("not json").is_err());
+
+        // Only 0 and 1 are valid statuses; anything else would silently
+        // skew percentages if accepted.
+        assert!(data
+            .load_str(r#"{ "coverage": { "a.adoc": { "1": 2 } } }"#)
+            .is_err());
+        assert!(data
+            .load_str(r#"{ "coverage": { "a.adoc": { "1": -1 } } }"#)
+            .is_err());
     }
 }

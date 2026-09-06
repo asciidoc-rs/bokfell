@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use bokfell_coverage::{BlockStatus, CoverageData};
+use bokfell_coverage::{BlockStatus, CoverageData, CoverageScope};
 use bokfell_model::{ContentCatalog, Family};
 use bokfell_render::Pipeline;
 use bokfell_theme::{PageContext, Theme};
@@ -175,9 +175,33 @@ fn projects_coverage_onto_rendered_blocks() {
         .unwrap();
 
     let mut catalog = ContentCatalog::new();
-    catalog.scan_source(&root).unwrap();
-    let pipeline =
-        Pipeline::new(catalog, Vec::new()).with_coverage(coverage, vec!["docs".to_string()]);
+    let key = catalog.scan_source(&root).unwrap();
+    assert_eq!(key, ("demo".to_string(), None));
+
+    // A second scope with identical keys but a different component must
+    // never leak onto this source's pages: were it consulted, every line
+    // would read verified.
+    let mut foreign = CoverageData::new();
+    foreign
+        .load_str(
+            r#"{ "coverage": {
+                "docs/modules/ROOT/pages/index.adoc": { "1": 1, "4": 1 }
+            } }"#,
+        )
+        .unwrap();
+
+    let pipeline = Pipeline::new(catalog, Vec::new()).with_coverage(vec![
+        CoverageScope {
+            data: foreign,
+            prefix: "docs".to_string(),
+            components: vec![("other".to_string(), Some("2.0".to_string()))],
+        },
+        CoverageScope {
+            data: coverage,
+            prefix: "docs".to_string(),
+            components: vec![key],
+        },
+    ]);
     let site = pipeline.render_site().unwrap();
 
     let index = site

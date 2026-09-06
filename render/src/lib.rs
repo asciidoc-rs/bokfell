@@ -27,7 +27,7 @@ use asciidoc_parser::{
     Parser, SafeMode,
 };
 pub use blockmap::client_selector as coverage_client_selector;
-use bokfell_coverage::{CoverageData, PageCoverage};
+use bokfell_coverage::{CoverageScope, PageCoverage};
 use bokfell_model::{
     relative_url, Component, ContentCatalog, Coords, Family, NavTree, VirtualFile,
 };
@@ -84,8 +84,7 @@ pub struct RenderedSite {
 pub struct Pipeline {
     catalog: Arc<ContentCatalog>,
     site_attrs: Vec<(String, Option<String>)>,
-    coverage: CoverageData,
-    coverage_prefixes: Vec<String>,
+    coverage: Vec<CoverageScope>,
 }
 
 struct ParsedPage {
@@ -107,16 +106,15 @@ impl Pipeline {
         Pipeline {
             catalog: Arc::new(catalog),
             site_attrs,
-            coverage: CoverageData::new(),
-            coverage_prefixes: Vec::new(),
+            coverage: Vec::new(),
         }
     }
 
-    /// Supplies spec-coverage data (PLAN.md §9.2). Pages are looked up
-    /// under each prefix in order; the first hit wins.
-    pub fn with_coverage(mut self, coverage: CoverageData, prefixes: Vec<String>) -> Self {
+    /// Supplies spec-coverage data (PLAN.md §9.2), one scope per content
+    /// source: a page reads only the scopes that cover its own component
+    /// version, first hit wins.
+    pub fn with_coverage(mut self, coverage: Vec<CoverageScope>) -> Self {
         self.coverage = coverage;
-        self.coverage_prefixes = prefixes;
         self
     }
 
@@ -336,13 +334,12 @@ impl Pipeline {
     /// file's coverage). A block that merely *follows* an include keeps
     /// its translated top-level line.
     fn page_coverage(&self, page: &ParsedPage) -> Option<PageCoverage> {
-        if self.coverage.is_empty() {
-            return None;
-        }
-        let lines = self
-            .coverage_prefixes
-            .iter()
-            .find_map(|prefix| self.coverage.page_lines(prefix, &page.coords))?;
+        let lines = self.coverage.iter().find_map(|scope| {
+            if !scope.applies_to(&page.coords.component, page.coords.version.as_deref()) {
+                return None;
+            }
+            scope.data.page_lines(&scope.prefix, &page.coords)
+        })?;
 
         let source_map = page.document.source_map();
         let spans: Vec<(u32, u32)> = blockmap::overlay_blocks(&page.document)
