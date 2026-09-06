@@ -1,0 +1,22 @@
+= Site Structure
+:navtitle: Structure
+
+This example follows Antora's standard directory set:
+
+----
+hello-bokfell/
+  bokfell.yml               <- the playbook: sources in, site out
+  docs/
+    antora.yml              <- component descriptor (name, nav, start page)
+    modules/
+      ROOT/                 <- the default module (no URL segment)
+        nav.adoc            <- becomes the sidebar
+        pages/              <- one .adoc = one page
+        partials/           <- includable fragments (not published)
+      guide/                <- another module ("guide/" URL segment)
+        pages/
+----
+
+The component is *versionless* (`version: ~` in `antora.yml`), so URLs have
+no version segment. Content written this way builds unchanged under Antora
+as well -- that compatibility is a design rule.

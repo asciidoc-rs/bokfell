@@ -7,3 +7,6 @@ target
 
 # MSVC Windows builds of rustc generate these
 *.pdb
+
+# Example-site build output
+examples/*/build

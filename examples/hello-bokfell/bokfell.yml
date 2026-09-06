@@ -1,0 +1,16 @@
+# A minimal, self-contained Bokfell site. From this directory:
+#
+#     cargo run --bin bokfell -- build      # site lands in build/site
+#     cargo run --bin bokfell -- serve      # http://127.0.0.1:8000/ with live reload
+#
+# (Or `bokfell build` / `bokfell serve` with an installed binary.)
+site:
+  title: Hello Bokfell
+  start_page: hello::index.adoc
+
+content:
+  sources:
+    - path: docs
+
+output:
+  dir: build/site

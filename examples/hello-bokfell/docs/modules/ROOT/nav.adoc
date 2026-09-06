@@ -1,0 +1,5 @@
+* xref:index.adoc[]
+* xref:writing.adoc[]
+* Guide
+** xref:guide:structure.adoc[]
+** xref:guide:cross-references.adoc[]

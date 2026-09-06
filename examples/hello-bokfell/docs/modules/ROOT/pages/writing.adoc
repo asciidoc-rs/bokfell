@@ -1,0 +1,39 @@
+= Writing Content
+:navtitle: Writing
+
+A quick tour of the constructs the renderer handles today.
+
+== Text and lists
+
+Ordinary paragraphs support *strong*, _emphasis_, `monospace`, and
+https://asciidoc.org[links].
+
+. Ordered items
+. Nest as you expect
+* Unordered too
+* With a checklist flavor:
+** [x] rendered
+** [ ] pending
+
+== Blocks
+
+.A listing block with a title
+----
+$ bokfell serve
+serving on http://127.0.0.1:8000/
+----
+
+TIP: Admonitions come in NOTE, TIP, WARNING, CAUTION, and IMPORTANT.
+
+.A small table
+|===
+|Family |Published?
+
+|pages
+|yes
+
+|partials
+|no
+|===
+
+include::partial$shared-footer.adoc[]

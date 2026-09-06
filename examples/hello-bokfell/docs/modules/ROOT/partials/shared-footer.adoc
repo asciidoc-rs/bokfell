@@ -1,0 +1,4 @@
+---
+
+_This closing line lives in `partials/shared-footer.adoc` and is pulled in
+with `+include::partial$shared-footer.adoc[]+` on every page that wants it._
