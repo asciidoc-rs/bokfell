@@ -386,19 +386,14 @@ impl ContentCatalog {
             .unwrap_or_else(|| from.component.clone());
 
         // With an explicit component but no explicit version, Antora
-        // resolves to that component's latest version; with one version per
-        // component in M1, that is the component's registered version.
+        // resolves to that component's *latest* version — including when
+        // the reference names the referencing page's own component.
+        // Without a component coordinate the reference stays within the
+        // referencing version.
         let version = if let Some(v) = &reference.version {
             Some(v.clone())
-        } else if reference.component.is_some()
-            && reference.component.as_deref() != Some(&from.component)
-        {
-            self.components
-                .iter()
-                .find(|c| c.desc.name == component)?
-                .desc
-                .version
-                .clone()
+        } else if reference.component.is_some() {
+            self.latest_of(&component)?.desc.version.clone()
         } else {
             from.version.clone()
         };
@@ -582,5 +577,62 @@ mod tests {
         assert_eq!(hit.coords.path, "sub/deep.adoc");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn component_qualified_references_resolve_to_latest_version() {
+        let base = std::env::temp_dir().join(format!("bokfell-latest-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+
+        // Scan order deliberately puts the OLDER version first, so scan
+        // order and version order disagree.
+        for version in ["1.0.0", "2.0.0"] {
+            let root = base.join(version);
+            std::fs::create_dir_all(root.join("modules/ROOT/pages")).unwrap();
+            std::fs::write(root.join("antora.yml"), "name: demo\nversion: ~\n").unwrap();
+            std::fs::write(root.join("modules/ROOT/pages/index.adoc"), "= Index\n").unwrap();
+        }
+
+        let mut catalog = ContentCatalog::new();
+        catalog
+            .scan_source_versioned(&base.join("1.0.0"), Some("1.0.0"))
+            .unwrap();
+        catalog
+            .scan_source_versioned(&base.join("2.0.0"), Some("2.0.0"))
+            .unwrap();
+
+        let from_old = Coords {
+            component: "demo".to_string(),
+            version: Some("1.0.0".to_string()),
+            module: "ROOT".to_string(),
+            family: Family::Page,
+            path: "index.adoc".to_string(),
+        };
+
+        // A component-qualified reference without a version — even naming
+        // the referencing page's own component — routes to the latest
+        // version, not the scan-first one and not the source version.
+        let hit = catalog
+            .resolve(
+                &ResourceRef::parse("demo::index.adoc").unwrap(),
+                &from_old,
+                Family::Page,
+            )
+            .unwrap();
+        assert_eq!(hit.coords.version.as_deref(), Some("2.0.0"));
+        assert_eq!(hit.url.as_deref(), Some("demo/2.0.0/index.html"));
+
+        // Without a component coordinate, the reference stays within the
+        // referencing version.
+        let hit = catalog
+            .resolve(
+                &ResourceRef::parse("index.adoc").unwrap(),
+                &from_old,
+                Family::Page,
+            )
+            .unwrap();
+        assert_eq!(hit.coords.version.as_deref(), Some("1.0.0"));
+
+        std::fs::remove_dir_all(&base).ok();
     }
 }
