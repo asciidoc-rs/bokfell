@@ -195,6 +195,13 @@ impl Pipeline {
     /// `page_url` supplies the URL context for the `imagesdir` seed; nav
     /// files pass `None` (their links are resolved through the catalog, not
     /// attribute-relative paths).
+    ///
+    /// This hand-configures a raw `Parser` rather than using
+    /// `asciidoc_html5::load_deferred` (0.2.1): that seam applies the full
+    /// `Options` bundle but cannot yet attach the catalog-backed include
+    /// handler this pipeline requires — see
+    /// <https://github.com/asciidoc-rs/asciidoc-html5/issues/337>. Once
+    /// that hook exists, this function collapses onto `load_deferred`.
     fn build_parser(
         &self,
         file: &VirtualFile,

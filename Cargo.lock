@@ -82,9 +82,9 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "asciidoc-html5"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc98ba8229b0fa2332279f2e5b504c36007954dd23dbed60c38235e1ff12cce3"
+checksum = "7ef0a31d63592b05d281b9f59851ed2dc5c0e36bd14fbbac59a36d37fabbc1b4"
 dependencies = [
  "asciidoc-parser",
 ]

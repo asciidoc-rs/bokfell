@@ -352,16 +352,19 @@ in shape.
 - **Catalogs**: `Document::catalog()` (ids, reftexts, footnotes; images/links
   with `catalog_assets`) feeds the site catalog, asset validation, and search
   extraction.
-- **One seam gap, worked around**: `asciidoc-html5` 0.2.0 has no
-  `load_deferred` — its `Options::apply` (attribute seeding, safe-mode
-  intrinsics, the include jail) is crate-private and `load`/`load_with`
-  auto-resolve. `bokfell-render` therefore configures a raw `Parser`
+- **One seam gap, nearly closed**: `asciidoc-html5` 0.2.1 shipped the
+  `load_deferred(source, &Options) -> (Document, Parser)` seam proposed in
+  [asciidoc-html5#330](https://github.com/asciidoc-rs/asciidoc-html5/issues/330).
+  One hook remains before Bokfell can adopt it: `Options` can only install
+  the *filesystem* include handler, while catalog-backed resource-ID
+  includes need Bokfell's custom `IncludeFileHandler` attached before the
+  parse — filed as
+  [asciidoc-html5#337](https://github.com/asciidoc-rs/asciidoc-html5/issues/337).
+  Until that lands, `bokfell-render` keeps configuring a raw `Parser`
   directly (`with_safe_mode`, `with_intrinsic_attribute`,
-  `with_include_file_handler`, `with_primary_file_name`) for the deferred
-  parse, then renders via `convert_document_with`. A
-  `load_deferred(source, &Options)`-style seam returning the configured
-  parser is worth proposing upstream as a convenience, but is not a
-  blocker.
+  `with_include_file_handler`, `with_primary_file_name`), forgoing the
+  extra seeding `Options::apply` provides (safe-mode attribute locks,
+  version intrinsics, unset seeds).
 
 Renderer completeness is tracked upstream and is not a blocker: unsupported
 constructs render as visible `<!-- unsupported -->` comments, and the
