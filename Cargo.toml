@@ -20,7 +20,8 @@ repository = "https://github.com/asciidoc-rs/bokfell"
 rust-version = "1.88.0"
 version = "0.1.0"
 
-# Shared dependency versions land here as the M0 technology decisions
-# (PLAN.md §7) are wired in: asciidoc-parser, asciidoc-html5, and the
-# templating/git/serve stack. Deliberately empty until then.
+# Shared dependency versions; more of the M0 technology stack (PLAN.md §7)
+# lands here as it is wired in.
 [workspace.dependencies]
+asciidoc-html5 = "0.2.0"
+asciidoc-parser = "0.31.0"

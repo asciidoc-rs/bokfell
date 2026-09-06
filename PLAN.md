@@ -304,7 +304,7 @@ here, revisited only with evidence):
 | Concern | Choice | Rationale |
 |---|---|---|
 | Git | `gix` | Native-speed bare clones/reads, pure Rust, active; avoids shelling out to git |
-| Templates | `minijinja` (evaluate Tera 2) | Both are maintained Jinja2-family engines in 2026. minijinja: minimal deps, years-stable API. Tera 2 (a from-scratch rewrite Zola itself drove, stable mid-2026): built-in glob loading and a hygienic *components* feature that suits page composition, but a young 2.x API. Decide at M0 — the default theme is written against the winner |
+| Templates | `minijinja` (decided at M0) | Both minijinja and Tera 2 are maintained Jinja2-family engines in 2026. minijinja wins on a years-stable API, minimal dependencies, and Apache-2.0 licensing clarity; Tera 2's components feature is attractive but its 2.x API stabilized only weeks before M0. Revisit only with concrete evidence of a limitation |
 | Watcher | `notify-debouncer-full` (`notify`) | Ecosystem standard (Zola, cargo-watch); Zola's event-filtering layer maps the platform quirks to copy |
 | HTTP/WS | `axum` (dev server only) | What Zola converged on for serve+WS on one port; only `bokfell-serve` depends on it |
 | Highlighting | `syntect` | Build-time, no client JS. `giallo` (the TextMate-grammar highlighter Zola moved to in 0.22) was evaluated and ruled out: it is EUPL-1.2 (verified on crates.io, 2026-09), incompatible as a dependency of this MIT OR Apache-2.0 project |
@@ -314,34 +314,54 @@ here, revisited only with evidence):
 ## 8. Relationship to `asciidoc-parser` / `asciidoc-html5` (verified seams)
 
 The generator consumes the two existing crates through APIs that already
-exist — verified against `asciidoc-parser` 0.29.19 and `asciidoc-html5`
-0.1.7:
+exist — verified against `asciidoc-parser` **0.31.0** and `asciidoc-html5`
+**0.2.0**, the releases that landed the parser's **inline AST**. The parser
+now builds a structured inline tree per block (`Content::inlines`, nodes
+implementing `HasSpan`) and folds it to HTML at parse time through the
+`InlineRenderer` trait (default `HtmlInlineRenderer`), caching the result
+(`Content::rendered_html` / `IsBlock::rendered_html_content`); the html5
+crate still consumes only the folded HTML, so the embed path is unchanged
+in shape.
 
 - **Two-phase parse and site-wide reference resolution**:
-  `Parser::parse_deferred` + `Document::resolve_references(resolver, …)`,
-  where `ReferenceResolver` is a public trait and path-bearing xref targets
-  (`other-page.adoc#frag`) are deliberately left to a custom resolver.
-  `bokfell-render` implements `ReferenceResolver` over the ContentCatalog,
+  `Parser::parse_deferred` +
+  `Document::resolve_references(resolver, renderer, parser)`, where
+  `ReferenceResolver` is a public trait (`ResolutionContext` carries the
+  raw target, provided text, and the parser-derived path destination) and
+  path-bearing xref targets (`other-page.adoc#frag`) are deliberately left
+  to a custom resolver. `bokfell-render` implements `ReferenceResolver`
+  over the ContentCatalog, binding the "from page" context per document and
   translating resource IDs into site URLs — Antora-style xrefs with no
   upstream changes.
+- **Catalog-backed includes — no upstream hook needed**: the parser's
+  `IncludeFileHandler::resolve_target(source, target, attrlist, parser)`
+  receives every `include::` target and returns content, so a
+  catalog-backed handler serves `partial$`/`example$` resource IDs (and
+  content read from bare git repos) today. The plan previously flagged this
+  as a likely upstream ask; verification against 0.31.0 shows the trait
+  already suffices.
 - **Embedded rendering**: `asciidoc_html5::convert_document*` with
   `Options::embedded` produces body-only HTML for the theme layer, exactly as
   Antora composes Asciidoctor's embeddable output into Handlebars layouts.
-- **Always-on source maps**: every block carries a `Span` (line/col/byte
-  offset), and `Document::source_map().original_file_and_line()` translates
-  through includes. This powers diff anchoring (§9.1), coverage line→block
-  mapping (§9.2), and click-to-source editing (§9.3).
+- **Always-on source maps, now inline-deep**: every block carries a `Span`
+  (line/col/byte offset), `Document::source_map().original_file_and_line()`
+  translates through includes, and with 0.31.0 every *inline node* carries
+  a span too. This powers diff anchoring (§9.1), coverage line→block
+  mapping (§9.2), and click-to-source editing (§9.3) — at finer than block
+  granularity where it matters.
 - **Catalogs**: `Document::catalog()` (ids, reftexts, footnotes; images/links
   with `catalog_assets`) feeds the site catalog, asset validation, and search
   extraction.
-- **Include handling**: the library's include/docinfo jail and `AssetWriter`
-  seam already model "the caller owns the filesystem", which is what a
-  virtual-file pipeline needs. One likely upstream ask: an include *resolver*
-  hook (resolve `include::` targets through the ContentCatalog rather than the
-  filesystem) so `partial$`/`example$` resource-ID includes work for content
-  read from bare git repos. If the current handler traits don't accommodate
-  that, it becomes an `asciidoc-parser`/`asciidoc-html5` issue — the only
-  foreseeable upstream dependency of the early milestones.
+- **One seam gap, worked around**: `asciidoc-html5` 0.2.0 has no
+  `load_deferred` — its `Options::apply` (attribute seeding, safe-mode
+  intrinsics, the include jail) is crate-private and `load`/`load_with`
+  auto-resolve. `bokfell-render` therefore configures a raw `Parser`
+  directly (`with_safe_mode`, `with_intrinsic_attribute`,
+  `with_include_file_handler`, `with_primary_file_name`) for the deferred
+  parse, then renders via `convert_document_with`. A
+  `load_deferred(source, &Options)`-style seam returning the configured
+  parser is worth proposing upstream as a convenience, but is not a
+  blocker.
 
 Renderer completeness is tracked upstream and is not a blocker: unsupported
 constructs render as visible `<!-- unsupported -->` comments, and the
@@ -362,9 +382,13 @@ supported constructs.
 - **Diff model.** Diff at the *block* level using the parse tree, not raw text
   lines: align blocks between the two documents (by stable id where present,
   then by section path + similarity of source spans/content hashes, LCS over
-  the block sequence), classify each as unchanged/added/removed/moved/edited;
-  for edited blocks, word-level diff of the rendered inline HTML's text
-  content (`similar`), re-annotated as `<ins>`/`<del>` spans.
+  the block sequence), classify each as unchanged/added/removed/moved/edited.
+  For edited blocks, descend into the **inline AST** (`Content::inlines`,
+  available since `asciidoc-parser` 0.31.0): align inline nodes, word-diff
+  changed text runs (`similar`), and emit `<ins>`/`<del>` annotations —
+  with each change traceable to exact source spans, since inline nodes
+  implement `HasSpan`. (The pre-0.31 fallback — word-diffing the rendered
+  HTML's text content — is no longer needed.)
 - **Presentation.** Three artifacts per component-version pair: (a) a
   per-page diff view (toggle on the normal page: change bars in the gutter,
   ins/del highlighting, "jump to next change"); (b) a per-version "what
@@ -418,7 +442,9 @@ coverage JSON keyed by spec-file path.
   your edits change*.
 - **Editing round-trip.** The dev server exposes a small edit API: every
   rendered block carries its source location (file:line via span + include
-  translation), the page chrome offers "edit this block", which opens the
+  translation; inline nodes carry spans too since `asciidoc-parser` 0.31.0,
+  so finer targets are available), the page chrome offers "edit this
+  block", which opens the
   user's `$EDITOR`/IDE at that location (`vscode://file/...`-style deep links
   and a plain endpoint) — the watcher completes the loop. An optional
   in-browser plain-text editor pane (edit the page's AsciiDoc, save through
@@ -465,9 +491,9 @@ needs.
 
 ## 11. Risks
 
-- **Include resolution through the catalog** (§8) may need an upstream hook;
-  it sits on M1's critical path, so verify the handler traits in week one and
-  file upstream early if needed.
+- ~~Include resolution through the catalog may need an upstream hook~~ —
+  resolved: verified against `asciidoc-parser` 0.31.0, the existing
+  `IncludeFileHandler` trait suffices (§8).
 - **Renderer gaps**: any Antora-compatible corpus will hit constructs
   `asciidoc-html5` doesn't render yet; mitigated by the visible-comment
   fallback, the dogfood-first milestone order, and upstream parity work
@@ -495,10 +521,13 @@ needs.
    resource IDs) remain Antora-compatible per §5.
 3. **Repo creation** — `asciidoc-rs/bokfell` exists and is bootstrapped;
    this document now lives here (the copy in `asciidoc-html5` was removed).
+4. **Theme engine** — `minijinja` (see §7 table; decided 2026-09-06 at the
+   M0 decision point).
+5. **Baseline crate versions** — M1 builds against `asciidoc-parser` 0.31.0
+   and `asciidoc-html5` 0.2.0, the inline-AST releases (§8, updated
+   2026-09-06).
 
 **Open:**
 
 1. **Search index tech** — build-time index format (elasticlunr-compatible vs
    Pagefind-style chunked index vs a small custom format) — evaluate at M7.
-2. **Theme engine** — minijinja vs Tera 2 (see §7 table); decide at M0 since
-   the default theme is written against it.
