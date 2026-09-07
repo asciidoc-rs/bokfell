@@ -75,8 +75,7 @@ pub fn html_to_text(html: &str) -> String {
             } else {
                 "</style"
             };
-            let lower = rest.to_ascii_lowercase();
-            match lower.find(closer) {
+            match find_closer(rest, closer) {
                 Some(close_at) => {
                     let after = &rest[close_at..];
                     match after.find('>') {
@@ -95,6 +94,24 @@ pub fn html_to_text(html: &str) -> String {
     push_text(&mut out, rest);
 
     out.trim().to_string()
+}
+
+/// Finds the raw-text element's real closing tag: `closer` (e.g.
+/// `</script`) matched case-insensitively and followed by `>`, `/`, or
+/// whitespace — so `</scriptfoo>` never terminates a `<script>` early.
+fn find_closer(text: &str, closer: &str) -> Option<usize> {
+    let lower = text.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(at) = lower[from..].find(closer) {
+        let candidate = from + at;
+        let after = lower[candidate + closer.len()..].chars().next();
+        match after {
+            None | Some('>') | Some('/') => return Some(candidate),
+            Some(c) if c.is_whitespace() => return Some(candidate),
+            _ => from = candidate + closer.len(),
+        }
+    }
+    None
 }
 
 /// Appends `text` with entities decoded and whitespace collapsed (one
@@ -195,6 +212,13 @@ mod tests {
         // never emitting code as searchable text.
         let text = html_to_text("<p>A.</p><script>1 < 2");
         assert_eq!(text, "A.");
+
+        // A closer-shaped prefix inside the code (or a bogus element
+        // name) never terminates the raw text early.
+        let text = html_to_text("<p>A.</p><script>var s = \"</scriptx>\";</script><p>B.</p>");
+        assert_eq!(text, "A. B.");
+        let text = html_to_text("<p>A.</p><script>x</script\t>\n<p>B.</p>");
+        assert_eq!(text, "A. B.");
     }
 
     #[test]
