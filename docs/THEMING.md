@@ -1,10 +1,10 @@
 # Theming
 
-The built-in theme compiles into the `bokfell` binary; a theme is a
-directory of per-file overrides passed with `--theme <dir>` (on `build`
-and `serve`). There are no zipped UI bundles — a file in the theme
-directory replaces its built-in counterpart, and everything you don't
-override keeps working.
+The built-in theme compiles into the `bokfell` binary. Pass a theme
+directory with `--theme <dir>` (on `build` and `serve`) to replace the
+built-in `layout.html` — that is the one file a theme overrides today.
+There are no zipped UI bundles; link any custom stylesheets or scripts
+from your replacement layout.
 
 ## Overriding the layout
 

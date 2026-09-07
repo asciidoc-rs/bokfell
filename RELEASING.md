@@ -12,7 +12,8 @@ Release binaries build automatically: push a `v*` tag (e.g. `v0.1.0`) on a
 main-branch commit and the [Release workflow](.github/workflows/release.yml)
 attaches `bokfell` archives for Linux (x86_64), macOS (arm64 and x86_64),
 and Windows (x86_64), each with a SHA-256 checksum, to the GitHub release
-for that tag.
+for that tag. The workflow refuses to build unless the tag matches the
+workspace version in `Cargo.toml` and the tagged commit is on `main`.
 
 ```sh
 git tag v0.1.0
