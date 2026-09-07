@@ -17,7 +17,12 @@
 {{ nav_html | safe }}
   </nav>
   <main class="doc">
-    <article>
+{% if coverage %}    <div class="coverage-badge cov-{{ coverage.level }}">
+      <button id="bokfell-cov-toggle" type="button" aria-pressed="false"
+        title="{{ coverage.verified }} verified and {{ coverage.uncovered }} uncovered normative lines. Click to shade blocks by status.">{{ coverage.percent }}% verified</button>
+      <a href="{{ coverage.dashboard_href | safe }}">all pages</a>
+    </div>
+{% endif %}    <article>
 {% if page.title_html %}      <h1 class="page-title">{{ page.title_html | safe }}</h1>
 {% endif %}{{ page.contents | safe }}
     </article>
@@ -26,5 +31,7 @@
 <footer class="site-footer">
   <p>Built with <a href="https://github.com/asciidoc-rs/bokfell">Bokfell</a>.</p>
 </footer>
-</body>
+{% if coverage %}<script type="application/json" id="bokfell-cov-data">{{ coverage.data_json | safe }}</script>
+<script src="{{ coverage.script_href | safe }}" defer></script>
+{% endif %}</body>
 </html>

@@ -119,8 +119,9 @@ impl ContentCatalog {
     }
 
     /// Scans one content source root (a directory containing `antora.yml`
-    /// and `modules/`) into the catalog.
-    pub fn scan_source(&mut self, root: &Path) -> Result<(), CatalogError> {
+    /// and `modules/`) into the catalog, returning the scanned component's
+    /// `(name, version)` key.
+    pub fn scan_source(&mut self, root: &Path) -> Result<(String, Option<String>), CatalogError> {
         self.scan_source_versioned(root, None)
     }
 
@@ -131,7 +132,7 @@ impl ContentCatalog {
         &mut self,
         root: &Path,
         version_override: Option<&str>,
-    ) -> Result<(), CatalogError> {
+    ) -> Result<(String, Option<String>), CatalogError> {
         let descriptor_path = root.join("antora.yml");
         if !descriptor_path.is_file() {
             return Err(CatalogError::MissingDescriptor(root.to_path_buf()));
@@ -148,8 +149,13 @@ impl ContentCatalog {
 
         self.scan_modules(&component)?;
         self.register_nav_files(&component)?;
+
+        // The scanned component's key, so callers can associate
+        // per-source data (e.g. spec coverage) with exactly the component
+        // version this scan contributed.
+        let key = (component.desc.name.clone(), component.desc.version.clone());
         self.components.push(component);
-        Ok(())
+        Ok(key)
     }
 
     fn scan_modules(&mut self, component: &Component) -> Result<(), CatalogError> {

@@ -214,11 +214,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bokfell-aggregate",
+ "bokfell-coverage",
  "bokfell-model",
  "bokfell-render",
  "bokfell-serve",
  "bokfell-theme",
  "clap",
+ "serde_json",
 ]
 
 [[package]]
@@ -233,6 +235,11 @@ dependencies = [
 [[package]]
 name = "bokfell-coverage"
 version = "0.1.0"
+dependencies = [
+ "bokfell-model",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "bokfell-diff"
@@ -253,6 +260,7 @@ version = "0.1.0"
 dependencies = [
  "asciidoc-html5",
  "asciidoc-parser",
+ "bokfell-coverage",
  "bokfell-model",
  "thiserror",
 ]

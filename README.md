@@ -33,8 +33,12 @@ watching dev server with live browser reload (~150 ms rebuilds on a
 37-page site). Content sources can be git repositories: matched branches
 and tags become component versions (bare cache clones, no checkouts),
 with Antora's version ordering, latest-version routing, and a per-page
-version selector. Diffs, coverage overlays, and click-to-source editing
-are still to come — see [`PLAN.md`](PLAN.md) for the architecture
+version selector. Spec-coverage overlays work end to end: per-line
+coverage JSON (from a tool like asciidoc-rs's `sdd`) becomes a
+verified-percentage badge on each covered page, a click-to-toggle
+per-block shading overlay, and a site-wide `/coverage.html` dashboard.
+Diffs and click-to-source editing are still to come — see
+[`PLAN.md`](PLAN.md) for the architecture
 and milestone roadmap, and [`CLAUDE.md`](CLAUDE.md) for contributor
 conventions (including important license boundaries around code borrowed
 from other site generators).
@@ -51,7 +55,9 @@ cargo run --bin bokfell -- serve     # http://127.0.0.1:8000/, live reload
 ```
 
 Edit anything under `examples/hello-bokfell/docs/` while `serve` runs and
-the browser reloads with the change.
+the browser reloads with the change. The home page also demos the
+spec-coverage overlay: click its "60% verified" badge to shade each block
+by verification status.
 
 ## Building a site
 
@@ -71,6 +77,8 @@ content:
       tags: ['asciidoc-html5-v*']
       start_path: docs
       version_from_ref: true
+      coverage:                      # optional spec-coverage JSON
+        - spec-coverage.json         # (per-line, Codecov-style; see PLAN.md)
 output:
   dir: build/site
 ```

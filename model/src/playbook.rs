@@ -114,6 +114,19 @@ pub struct SourceConfig {
     /// descriptor). Only meaningful with `url`.
     #[serde(default)]
     pub version_from_ref: bool,
+
+    /// Spec-coverage JSON files (the `sdd` tool's Codecov-style output)
+    /// describing this source's content, relative to the playbook's
+    /// directory (PLAN.md §9.2).
+    #[serde(default)]
+    pub coverage: Vec<PathBuf>,
+
+    /// The path prefix the coverage files' keys start with. Defaults to
+    /// the source's `start_path` (git sources) or `path` (directory
+    /// sources) — e.g. keys like `docs/modules/ROOT/pages/x.adoc` carry
+    /// the prefix `docs`.
+    #[serde(default)]
+    pub coverage_prefix: Option<String>,
 }
 
 /// The `output` block.
@@ -187,6 +200,27 @@ impl SourceConfig {
     /// directory (`path`).
     pub fn is_git(&self) -> bool {
         self.url.is_some()
+    }
+
+    /// The effective coverage-key prefix (see
+    /// [`coverage_prefix`](Self::coverage_prefix)).
+    pub fn effective_coverage_prefix(&self) -> String {
+        if let Some(prefix) = &self.coverage_prefix {
+            return prefix.trim_matches('/').to_string();
+        }
+        if self.url.is_some() {
+            return self.start_path.trim_matches('/').to_string();
+        }
+        self.path
+            .as_deref()
+            .map(|p| {
+                p.to_string_lossy()
+                    .replace('\\', "/")
+                    .trim_matches('/')
+                    .trim_start_matches("./")
+                    .to_string()
+            })
+            .unwrap_or_default()
     }
 
     /// Validates that exactly one of `path`/`url` is set.
