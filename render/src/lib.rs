@@ -325,13 +325,10 @@ impl Pipeline {
     }
 
     /// Builds the load/convert options for one source file: safe mode,
-    /// the catalog-backed include handler
-    /// (<https://github.com/asciidoc-rs/asciidoc-html5/issues/337>),
-    /// attribute overrides (`Options::attribute` maps to the same
-    /// API-only modification context the raw parser used), embedded
-    /// output, and `data-source-line` annotations for exact overlay
-    /// anchoring
-    /// (<https://github.com/asciidoc-rs/asciidoc-html5/issues/339>).
+    /// the catalog-backed include handler, attribute overrides
+    /// (`Options::attribute` maps to the same API-only modification
+    /// context the raw parser used), embedded output, and
+    /// `data-source-line` annotations for exact overlay anchoring.
     ///
     /// `page_url` supplies the URL context for the `imagesdir` seed; nav
     /// files pass `None` (their links are resolved through the catalog,
