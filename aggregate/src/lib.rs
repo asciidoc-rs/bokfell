@@ -133,6 +133,31 @@ impl Aggregator {
     }
 
     /// Aggregates one git source into content roots, one per matched ref.
+    /// Collects one *named* ref: tried as a branch first, then as a tag
+    /// — never both namespaces at once, so a repository holding a branch
+    /// and a tag with the same name yields that ref's content exactly
+    /// once (the branch wins). `source`'s own branch/tag patterns are
+    /// ignored; everything else (URL, start path, versioning) applies.
+    pub fn collect_ref(
+        &self,
+        source: &GitSource,
+        refname: &str,
+    ) -> Result<Vec<CollectedRoot>, AggregateError> {
+        let as_branch = GitSource {
+            branches: vec![refname.to_string()],
+            tags: Vec::new(),
+            ..source.clone()
+        };
+        match self.collect(&as_branch) {
+            Err(AggregateError::NoMatchingRef { .. }) => self.collect(&GitSource {
+                branches: Vec::new(),
+                tags: vec![refname.to_string()],
+                ..source.clone()
+            }),
+            other => other,
+        }
+    }
+
     pub fn collect(&self, source: &GitSource) -> Result<Vec<CollectedRoot>, AggregateError> {
         let repo = self.open_or_clone(&source.url)?;
         let matched = matched_refs(&repo, source).map_err(|message| AggregateError::Refs {

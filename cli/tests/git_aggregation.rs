@@ -229,6 +229,44 @@ fn aggregates_branch_and_tag_as_versions() {
     let again = aggregator.collect(&source).unwrap();
     assert_eq!(again.len(), 2);
 
+    // A single named ref via collect_ref: even with a tag named like
+    // the branch, the ref's content is aggregated exactly once (the
+    // branch wins), so a --diff-base build never scans duplicates.
+    git(&repo, &["tag", "main"]);
+    let by_name = aggregator
+        .collect_ref(
+            &GitSource {
+                branches: Vec::new(),
+                tags: Vec::new(),
+                ..source.clone()
+            },
+            "main",
+        )
+        .unwrap();
+    assert_eq!(by_name.len(), 1, "roots: {by_name:?}");
+    let by_tag = aggregator
+        .collect_ref(
+            &GitSource {
+                branches: Vec::new(),
+                tags: Vec::new(),
+                ..source.clone()
+            },
+            "v1.0.0",
+        )
+        .unwrap();
+    assert_eq!(by_tag.len(), 1);
+    assert!(matches!(
+        aggregator.collect_ref(
+            &GitSource {
+                branches: Vec::new(),
+                tags: Vec::new(),
+                ..source.clone()
+            },
+            "no-such-ref",
+        ),
+        Err(bokfell_aggregate::AggregateError::NoMatchingRef { .. })
+    ));
+
     // A negative pattern excludes the branch HEAD resolves to.
     let negated = GitSource {
         branches: vec!["HEAD".to_string(), "!main".to_string()],

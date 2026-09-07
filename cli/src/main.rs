@@ -615,8 +615,8 @@ fn base_catalog(
             };
             GitSource {
                 url: repo_root.display().to_string(),
-                branches: vec![base_ref.to_string()],
-                tags: vec![base_ref.to_string()],
+                branches: Vec::new(),
+                tags: Vec::new(),
                 start_path,
                 version_from_ref: false,
             }
@@ -631,14 +631,16 @@ fn base_catalog(
                 };
             GitSource {
                 url,
-                branches: vec![base_ref.to_string()],
-                tags: vec![base_ref.to_string()],
+                branches: Vec::new(),
+                tags: Vec::new(),
                 start_path: source.start_path.clone(),
                 version_from_ref: false,
             }
         };
 
-        for root in aggregator.collect(&git_source)? {
+        // `collect_ref` tries the ref as a branch, then as a tag — never
+        // both, so a same-named branch and tag can't scan twice.
+        for root in aggregator.collect_ref(&git_source, base_ref)? {
             catalog
                 .scan_source_versioned(&root.path, root.version_override.as_deref())
                 .with_context(|| {
