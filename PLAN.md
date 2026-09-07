@@ -548,9 +548,15 @@ Ordered to dogfood early and keep every milestone shippable:
   page's text from the rendered HTML (tag stripper, entity decoding),
   the build emits `_/search-index.json`, and the theme's header box
   lazy-loads it and scores entries with plain token matching — no index
-  library on either side. Still inside M7's umbrella: section-level
-  entries with anchors, theme override docs, published crates + release
-  binaries, and the Antora migration guide.*
+  library on either side. Polish also done (2026-09-07): the Antora
+  migration guide (`docs/MIGRATING-FROM-ANTORA.md`), theme override docs
+  (`docs/THEMING.md`), crates.io publish readiness (publish flags
+  flipped, keywords/categories, `RELEASING.md` with the dependency-order
+  publish sequence), and a tag-triggered release workflow building
+  `bokfell` binaries for Linux/macOS/Windows with checksums. Still inside
+  M7's umbrella: section-level search entries with anchors, and the
+  actual `cargo publish` run (a maintainer act needing a crates.io
+  token).*
 
 Coverage (M4) deliberately precedes diff (M5): its data pipeline is simpler,
 the `sdd` seed exists, and it exercises the source-map plumbing diff also

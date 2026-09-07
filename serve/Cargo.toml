@@ -5,10 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+keywords = ["asciidoc", "documentation", "livereload", "dev-server"]
+categories = ["web-programming::http-server"]
 version.workspace = true
-
-# Not ready for crates.io; flipped deliberately when 0.1 ships.
-publish = false
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }

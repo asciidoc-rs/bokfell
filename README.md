@@ -112,6 +112,13 @@ For a live-reloading preview while editing:
 bokfell serve            # http://127.0.0.1:8000/, --port to change
 ```
 
+## Guides
+
+- [Migrating from Antora](docs/MIGRATING-FROM-ANTORA.md) — playbook
+  translation, what carries over, what Bokfell adds.
+- [Theming](docs/THEMING.md) — layout overrides and the template context.
+- [Releasing](RELEASING.md) — version bumps, binaries, crates.io order.
+
 ## License
 
 Licensed under either of
