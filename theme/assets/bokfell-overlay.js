@@ -5,12 +5,12 @@
 // The page carries a JSON payload (#bokfell-overlay-data) with the block
 // pairing selector plus per-block arrays for whichever overlays the page
 // has, enumerated server-side from the AST in document order. Blocks
-// anchor exactly by their data-source-line attributes when present
-// (asciidoc-html5 0.2.2); otherwise this script collects the article's
-// matching elements outermost-only — mirroring the server's "never
-// descend into an emitted block" rule — and each overlay's toggle wires
-// only when its array length matches the element count, so a mismatch
-// degrades to no overlay instead of marking the wrong blocks.
+// anchor exactly by their data-source-line attributes when present;
+// otherwise this script collects the article's matching elements
+// outermost-only — mirroring the server's "never descend into an
+// emitted block" rule — and each overlay's toggle wires only when its
+// array length matches the element count, so a mismatch degrades to no
+// overlay instead of marking the wrong blocks.
 
 // Pairs payload block lines with annotated elements. `annotatedLines` is
 // every data-source-line value in document order; `targetLines` is the
