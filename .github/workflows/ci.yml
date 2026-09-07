@@ -91,8 +91,11 @@ jobs:
       # The theme's client scripts (overlay pairing, search) carry real
       # logic; their pure functions are unit-tested with Node's built-in
       # runner (preinstalled on the GitHub runners — no npm install).
+      # The unquoted wildcard lets the shell expand the file list, so
+      # the job works on any Node version (Node itself only globs
+      # `--test` patterns from v21).
       - name: Run theme client tests
-        run: node --test "theme/tests/*.test.js"
+        run: node --test theme/tests/*.test.js
 
   fmt:
     name: Rustfmt

@@ -26,6 +26,12 @@ const OVERLAY_JS: &str = include_str!("../assets/bokfell-overlay.js");
 /// The URL of the published overlay script, relative to the site root.
 const OVERLAY_JS_URL: &str = "_/bokfell-overlay.js";
 
+/// The embedded search client, published as `_/bokfell-search.js`.
+const SEARCH_JS: &str = include_str!("../assets/bokfell-search.js");
+
+/// The URL of the published search client, relative to the site root.
+const SEARCH_JS_URL: &str = "_/bokfell-search.js";
+
 /// Errors from theme loading or page composition.
 #[derive(Debug, thiserror::Error)]
 pub enum ThemeError {
@@ -198,6 +204,8 @@ impl Theme {
             overlay_json => ctx.overlay_json.clone(),
             overlay_script_href =>
                 escape_html(&relative_url(ctx.url, OVERLAY_JS_URL)),
+            search_script_href =>
+                escape_html(&relative_url(ctx.url, SEARCH_JS_URL)),
         })?;
 
         Ok(html)
@@ -208,6 +216,7 @@ impl Theme {
         vec![
             (CSS_URL.to_string(), DEFAULT_CSS.as_bytes().to_vec()),
             (OVERLAY_JS_URL.to_string(), OVERLAY_JS.as_bytes().to_vec()),
+            (SEARCH_JS_URL.to_string(), SEARCH_JS.as_bytes().to_vec()),
         ]
     }
 

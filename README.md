@@ -46,7 +46,8 @@ changed. And `bokfell serve` closes the edit loop: every rendered block
 carries an edit button that opens your editor at the exact source file
 and line (`--editor "cmd {file}:{line}"`, `$BOKFELL_EDITOR`, or VS
 Code's `code --goto` by default) — save, and the watcher rebuilds and
-reloads the browser. See
+reloads the browser. Every site ships client-side search: a header box
+backed by a build-time static index, no services involved. See
 [`PLAN.md`](PLAN.md) for the architecture
 and milestone roadmap, and [`CLAUDE.md`](CLAUDE.md) for contributor
 conventions (including important license boundaries around code borrowed

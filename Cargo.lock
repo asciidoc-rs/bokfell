@@ -217,6 +217,7 @@ dependencies = [
  "bokfell-coverage",
  "bokfell-model",
  "bokfell-render",
+ "bokfell-search",
  "bokfell-serve",
  "bokfell-theme",
  "clap",
@@ -272,6 +273,10 @@ dependencies = [
 [[package]]
 name = "bokfell-search"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "bokfell-serve"

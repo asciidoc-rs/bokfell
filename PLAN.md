@@ -543,6 +543,14 @@ Ordered to dogfood early and keep every milestone shippable:
   targets, and the `--local url=path` author-mode overlay.*
 - **M7 — Search + polish → 0.1.** Static search index + UI, theme override
   docs, published crates + release binaries, migration guide from Antora.
+  *Search done (2026-09-07), resolving §12's open format question in
+  favor of a small custom JSON index: `bokfell-search` extracts each
+  page's text from the rendered HTML (tag stripper, entity decoding),
+  the build emits `_/search-index.json`, and the theme's header box
+  lazy-loads it and scores entries with plain token matching — no index
+  library on either side. Still inside M7's umbrella: section-level
+  entries with anchors, theme override docs, published crates + release
+  binaries, and the Antora migration guide.*
 
 Coverage (M4) deliberately precedes diff (M5): its data pipeline is simpler,
 the `sdd` seed exists, and it exercises the source-map plumbing diff also
@@ -588,5 +596,6 @@ needs.
 
 **Open:**
 
-1. **Search index tech** — build-time index format (elasticlunr-compatible vs
-   Pagefind-style chunked index vs a small custom format) — evaluate at M7.
+1. ~~**Search index tech**~~ — resolved at M7: a small custom JSON format
+   (per-page `{title, url, text}` entries, plain token scoring in the
+   theme's client script); see `bokfell-search`.
