@@ -21,7 +21,7 @@
 //! and the list of paths to watch.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -31,11 +31,11 @@ use std::{
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path as UrlPath, State,
+        Path as UrlPath, Query, State,
     },
     http::{header, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use tokio::sync::broadcast;
@@ -43,9 +43,110 @@ use tokio::sync::broadcast;
 /// The in-memory site: site-root-relative URL → file bytes.
 pub type SiteMap = HashMap<String, Vec<u8>>;
 
+/// One build of the site: its files, plus the local source files the
+/// edit API (PLAN.md §9.3) is allowed to open.
+#[derive(Debug, Default)]
+pub struct SiteBuild {
+    /// The site files.
+    pub files: SiteMap,
+    /// Source files the edit endpoint may open — everything else is
+    /// refused, so the endpoint can't be pointed at arbitrary paths.
+    pub editable: HashSet<PathBuf>,
+}
+
+impl From<SiteMap> for SiteBuild {
+    fn from(files: SiteMap) -> Self {
+        SiteBuild {
+            files,
+            editable: HashSet::new(),
+        }
+    }
+}
+
 /// Builds the whole site into memory. Called for the initial build and
 /// again after every debounced filesystem change.
-pub type SiteBuilder = Box<dyn FnMut() -> Result<SiteMap, String> + Send>;
+pub type SiteBuilder = Box<dyn FnMut() -> Result<SiteBuild, String> + Send>;
+
+/// How the edit endpoint opens a source location: an argv template where
+/// every `{file}` and `{line}` token is substituted per argument (e.g.
+/// `code --goto {file}:{line}`).
+#[derive(Clone, Debug)]
+pub struct EditorCommand {
+    argv: Vec<String>,
+}
+
+impl EditorCommand {
+    /// Parses a command template into arguments; `None` when empty.
+    ///
+    /// Arguments split on whitespace, and single or double quotes group
+    /// text (including spaces) into one argument — so an executable path
+    /// containing spaces works: `"C:\Program Files\Editor\ed.exe"
+    /// --goto {file}:{line}`. Quotes are removed; there is no escape
+    /// processing inside them.
+    pub fn parse(template: &str) -> Option<Self> {
+        let mut argv: Vec<String> = Vec::new();
+        let mut current = String::new();
+        let mut in_word = false;
+        let mut quote: Option<char> = None;
+
+        for c in template.chars() {
+            match quote {
+                Some(q) if c == q => quote = None,
+                Some(_) => current.push(c),
+                None if c == '"' || c == '\'' => {
+                    quote = Some(c);
+                    in_word = true;
+                }
+                None if c.is_whitespace() => {
+                    if in_word {
+                        argv.push(std::mem::take(&mut current));
+                        in_word = false;
+                    }
+                }
+                None => {
+                    current.push(c);
+                    in_word = true;
+                }
+            }
+        }
+        if in_word {
+            argv.push(current);
+        }
+
+        if argv.is_empty() {
+            None
+        } else {
+            Some(EditorCommand { argv })
+        }
+    }
+
+    /// Substitutes the location into the template. A template without a
+    /// `{file}` token gets the file appended as a final argument.
+    fn argv_for(&self, file: &str, line: usize) -> Vec<String> {
+        let line = line.to_string();
+        let mut argv: Vec<String> = self
+            .argv
+            .iter()
+            .map(|arg| arg.replace("{file}", file).replace("{line}", &line))
+            .collect();
+        if !self.argv.iter().any(|arg| arg.contains("{file}")) {
+            argv.push(file.to_string());
+        }
+        argv
+    }
+
+    /// Launches the editor at the location, detached.
+    pub fn open(&self, file: &str, line: usize) -> std::io::Result<()> {
+        let argv = self.argv_for(file, line);
+        std::process::Command::new(&argv[0])
+            .args(&argv[1..])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| ())
+    }
+}
 
 /// Errors from running the dev server.
 #[derive(Debug, thiserror::Error)]
@@ -79,6 +180,10 @@ pub struct ServeOptions {
 
     /// Debounce window for filesystem events.
     pub debounce: Duration,
+
+    /// The editor the edit endpoint launches; `None` disables editing
+    /// (the endpoint answers 501 with configuration guidance).
+    pub editor: Option<EditorCommand>,
 }
 
 impl Default for ServeOptions {
@@ -87,30 +192,35 @@ impl Default for ServeOptions {
             addr: ([127, 0, 0, 1], 8000).into(),
             watch: Vec::new(),
             debounce: Duration::from_millis(300),
+            editor: None,
         }
     }
 }
 
-/// Shared server state: the current site and the reload broadcast.
+/// Shared server state: the current build (site plus editable set,
+/// swapped as one unit so requests never see a half-published build),
+/// the editor, and the reload broadcast.
 pub struct ServeState {
-    site: RwLock<SiteMap>,
+    build: RwLock<SiteBuild>,
+    editor: Option<EditorCommand>,
     reload: broadcast::Sender<()>,
 }
 
 impl ServeState {
-    /// Creates the state with an initial site.
-    pub fn new(site: SiteMap) -> Arc<Self> {
+    /// Creates the state with an initial build.
+    pub fn new(build: SiteBuild, editor: Option<EditorCommand>) -> Arc<Self> {
         let (reload, _) = broadcast::channel(16);
         Arc::new(ServeState {
-            site: RwLock::new(site),
+            build: RwLock::new(build),
+            editor,
             reload,
         })
     }
 
-    /// Swaps in a newly built site and tells connected browsers to
-    /// reload.
-    pub fn publish(&self, site: SiteMap) {
-        *self.site.write().expect("site lock") = site;
+    /// Swaps in a newly built site — files and editable set atomically —
+    /// and tells connected browsers to reload.
+    pub fn publish(&self, build: SiteBuild) {
+        *self.build.write().expect("build lock") = build;
 
         // No receivers is fine — nobody is watching yet.
         let _ = self.reload.send(());
@@ -124,8 +234,8 @@ impl ServeState {
             key.push_str("index.html");
         }
 
-        let site = self.site.read().expect("site lock");
-        let bytes = site.get(&key)?;
+        let build = self.build.read().expect("build lock");
+        let bytes = build.files.get(&key)?;
 
         if key.ends_with(".html") {
             Some((inject_reload_client(bytes), "text/html; charset=utf-8"))
@@ -141,7 +251,7 @@ impl ServeState {
 /// debounced change under `options.watch`.
 pub fn serve(mut builder: SiteBuilder, options: ServeOptions) -> Result<(), ServeError> {
     let initial = builder().map_err(ServeError::InitialBuild)?;
-    let state = ServeState::new(initial);
+    let state = ServeState::new(initial, options.editor.clone());
 
     // The watcher thread debounces filesystem events and rebuilds. The
     // debouncer must outlive the loop, so it moves into the thread.
@@ -201,6 +311,7 @@ pub fn serve(mut builder: SiteBuilder, options: ServeOptions) -> Result<(), Serv
         let app = Router::new()
             .route("/", get(serve_root))
             .route("/__bokfell/reload", get(reload_socket))
+            .route("/__bokfell/edit", post(edit_source))
             .route("/{*path}", get(serve_path))
             .with_state(state);
 
@@ -231,6 +342,66 @@ fn respond(state: &ServeState, path: &str) -> Response {
         None => (
             StatusCode::NOT_FOUND,
             format!("bokfell serve: no such page: /{path}\n"),
+        )
+            .into_response(),
+    }
+}
+
+/// The edit endpoint's parameters.
+#[derive(serde::Deserialize)]
+struct EditParams {
+    /// The source file to open (must be in the current build's editable
+    /// set).
+    file: String,
+    /// 1-based line to open at.
+    #[serde(default = "one")]
+    line: usize,
+}
+
+fn one() -> usize {
+    1
+}
+
+/// Opens a source location in the configured editor (PLAN.md §9.3).
+async fn edit_source(
+    State(state): State<Arc<ServeState>>,
+    Query(params): Query<EditParams>,
+) -> Response {
+    let Some(editor) = &state.editor else {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            "bokfell serve: no editor configured — pass --editor or set \
+             BOKFELL_EDITOR (e.g. \"code --goto {file}:{line}\")\n",
+        )
+            .into_response();
+    };
+
+    // Only files the current build declared editable can be opened; the
+    // endpoint can't be pointed at arbitrary paths.
+    let path = PathBuf::from(&params.file);
+    if !state
+        .build
+        .read()
+        .expect("build lock")
+        .editable
+        .contains(&path)
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            "bokfell serve: not an editable source file of this site
+",
+        )
+            .into_response();
+    }
+
+    match editor.open(&params.file, params.line) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!(
+                "bokfell serve: cannot launch editor: {e}
+"
+            ),
         )
             .into_response(),
     }
@@ -313,7 +484,7 @@ mod tests {
             b"<html><body>Hi</body></html>".to_vec(),
         );
         site.insert("_/style.css".to_string(), b"body{}".to_vec());
-        let state = ServeState::new(site);
+        let state = ServeState::new(site.into(), None);
 
         let (bytes, ct) = state.lookup("").unwrap();
         assert_eq!(ct, "text/html; charset=utf-8");
@@ -330,12 +501,44 @@ mod tests {
 
     #[test]
     fn publish_swaps_the_site() {
-        let state = ServeState::new(SiteMap::new());
+        let state = ServeState::new(SiteBuild::default(), None);
         assert!(state.lookup("page.html").is_none());
 
         let mut site = SiteMap::new();
         site.insert("page.html".to_string(), b"<body>x</body>".to_vec());
-        state.publish(site);
+        state.publish(site.into());
         assert!(state.lookup("page.html").is_some());
+    }
+
+    #[test]
+    fn editor_command_substitutes_tokens() {
+        let editor = EditorCommand::parse("code --goto {file}:{line}").unwrap();
+        assert_eq!(
+            editor.argv_for("docs/a.adoc", 12),
+            vec!["code", "--goto", "docs/a.adoc:12"]
+        );
+
+        // A template without {file} gets the file appended.
+        let editor = EditorCommand::parse("myeditor --wait").unwrap();
+        assert_eq!(
+            editor.argv_for("a.adoc", 3),
+            vec!["myeditor", "--wait", "a.adoc"]
+        );
+
+        assert!(EditorCommand::parse("   ").is_none());
+
+        // Quotes group arguments, so executable paths with spaces work.
+        let editor =
+            EditorCommand::parse("\"C:\\Program Files\\Editor\\ed.exe\" --goto {file}:{line}")
+                .unwrap();
+        assert_eq!(
+            editor.argv_for("a.adoc", 7),
+            vec!["C:\\Program Files\\Editor\\ed.exe", "--goto", "a.adoc:7"]
+        );
+        let editor = EditorCommand::parse("open -a 'My Editor' {file}").unwrap();
+        assert_eq!(
+            editor.argv_for("a.adoc", 1),
+            vec!["open", "-a", "My Editor", "a.adoc"]
+        );
     }
 }

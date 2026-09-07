@@ -72,6 +72,11 @@ pub struct RenderedPage {
     /// What changed on this page relative to its diff base, when diffing
     /// was configured and a base exists (PLAN.md §9.1).
     pub diff: Option<PageDiff>,
+    /// Per overlay block, the source file and 1-based line the block
+    /// starts at — the click-to-source targets for the edit round-trip
+    /// (PLAN.md §9.3). `None` for a block whose origin can't be traced
+    /// to a file.
+    pub block_sources: Vec<Option<(std::path::PathBuf, usize)>>,
 }
 
 /// One page's changes relative to its diff base (the previous component
@@ -242,6 +247,7 @@ impl Pipeline {
 
             let contents = asciidoc_html5::convert_document_with(&page.document, &render_options);
             let coverage = self.page_coverage(page);
+            let block_sources = self.block_sources(page);
 
             pages.push(RenderedPage {
                 coords: page.coords.clone(),
@@ -252,6 +258,7 @@ impl Pipeline {
                 warnings: std::mem::take(&mut page.warnings),
                 coverage,
                 diff: diffs[page_index].take(),
+                block_sources,
             });
         }
 
@@ -549,6 +556,34 @@ impl Pipeline {
                 })
             }
         }
+    }
+
+    /// Traces every overlay block back to the source file and line it
+    /// starts at (PLAN.md §9.3): the page's own file for top-level
+    /// blocks, the resolved include target for spliced-in ones.
+    fn block_sources(&self, page: &ParsedPage) -> Vec<Option<(std::path::PathBuf, usize)>> {
+        let source_map = page.document.source_map();
+        let root_dir = std::path::Path::new(&page.primary_file_name).parent();
+
+        blockmap::overlay_blocks(&page.document)
+            .iter()
+            .map(|block| {
+                let origin = source_map.original_file_and_line(block.start_line as usize)?;
+                match origin.0.as_deref() {
+                    None => Some((std::path::PathBuf::from(&page.primary_file_name), origin.1)),
+                    Some(name) if name == page.primary_file_name => {
+                        Some((std::path::PathBuf::from(&page.primary_file_name), origin.1))
+                    }
+                    Some(target) => includes::resolve_include_source(
+                        &self.catalog,
+                        &page.coords,
+                        root_dir,
+                        target,
+                    )
+                    .map(|file| (file, origin.1)),
+                }
+            })
+            .collect()
     }
 
     fn component_of(&self, coords: &Coords) -> Result<&Component, RenderError> {

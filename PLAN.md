@@ -529,6 +529,16 @@ Ordered to dogfood early and keep every milestone shippable:
 - **M6 — Edit round-trip.** Edit API, click-to-source with editor deep links,
   scroll-sync; optional in-browser source pane. Exit: §9.3 loop demoable
   end-to-end.
+  *Core done (2026-09-07): every rendered block traces to its source file
+  and line (source-map translation, include targets resolved back through
+  the catalog), `bokfell serve` shows a per-block edit button that POSTs
+  to `/__bokfell/edit`, and the server launches the configured editor at
+  that exact location (`--editor` template > `$BOKFELL_EDITOR` >
+  `code --goto`; the endpoint only opens files the current build declared
+  editable). Saving in the editor hits the watcher, which rebuilds and
+  livereloads — the full §9.3 loop, demoed end-to-end. Still inside M6's
+  umbrella: the in-browser source pane with scroll-sync, per-inline-node
+  targets, and the `--local url=path` author-mode overlay.*
 - **M7 — Search + polish → 0.1.** Static search index + UI, theme override
   docs, published crates + release binaries, migration guide from Antora.
 
