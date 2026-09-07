@@ -76,9 +76,43 @@ pub struct EditorCommand {
 }
 
 impl EditorCommand {
-    /// Parses a whitespace-separated command template; `None` when empty.
+    /// Parses a command template into arguments; `None` when empty.
+    ///
+    /// Arguments split on whitespace, and single or double quotes group
+    /// text (including spaces) into one argument — so an executable path
+    /// containing spaces works: `"C:\Program Files\Editor\ed.exe"
+    /// --goto {file}:{line}`. Quotes are removed; there is no escape
+    /// processing inside them.
     pub fn parse(template: &str) -> Option<Self> {
-        let argv: Vec<String> = template.split_whitespace().map(str::to_string).collect();
+        let mut argv: Vec<String> = Vec::new();
+        let mut current = String::new();
+        let mut in_word = false;
+        let mut quote: Option<char> = None;
+
+        for c in template.chars() {
+            match quote {
+                Some(q) if c == q => quote = None,
+                Some(_) => current.push(c),
+                None if c == '"' || c == '\'' => {
+                    quote = Some(c);
+                    in_word = true;
+                }
+                None if c.is_whitespace() => {
+                    if in_word {
+                        argv.push(std::mem::take(&mut current));
+                        in_word = false;
+                    }
+                }
+                None => {
+                    current.push(c);
+                    in_word = true;
+                }
+            }
+        }
+        if in_word {
+            argv.push(current);
+        }
+
         if argv.is_empty() {
             None
         } else {
@@ -163,11 +197,11 @@ impl Default for ServeOptions {
     }
 }
 
-/// Shared server state: the current site, the editable-file set, the
-/// editor, and the reload broadcast.
+/// Shared server state: the current build (site plus editable set,
+/// swapped as one unit so requests never see a half-published build),
+/// the editor, and the reload broadcast.
 pub struct ServeState {
-    site: RwLock<SiteMap>,
-    editable: RwLock<HashSet<PathBuf>>,
+    build: RwLock<SiteBuild>,
     editor: Option<EditorCommand>,
     reload: broadcast::Sender<()>,
 }
@@ -177,18 +211,16 @@ impl ServeState {
     pub fn new(build: SiteBuild, editor: Option<EditorCommand>) -> Arc<Self> {
         let (reload, _) = broadcast::channel(16);
         Arc::new(ServeState {
-            site: RwLock::new(build.files),
-            editable: RwLock::new(build.editable),
+            build: RwLock::new(build),
             editor,
             reload,
         })
     }
 
-    /// Swaps in a newly built site and tells connected browsers to
-    /// reload.
+    /// Swaps in a newly built site — files and editable set atomically —
+    /// and tells connected browsers to reload.
     pub fn publish(&self, build: SiteBuild) {
-        *self.site.write().expect("site lock") = build.files;
-        *self.editable.write().expect("editable lock") = build.editable;
+        *self.build.write().expect("build lock") = build;
 
         // No receivers is fine — nobody is watching yet.
         let _ = self.reload.send(());
@@ -202,8 +234,8 @@ impl ServeState {
             key.push_str("index.html");
         }
 
-        let site = self.site.read().expect("site lock");
-        let bytes = site.get(&key)?;
+        let build = self.build.read().expect("build lock");
+        let bytes = build.files.get(&key)?;
 
         if key.ends_with(".html") {
             Some((inject_reload_client(bytes), "text/html; charset=utf-8"))
@@ -348,9 +380,10 @@ async fn edit_source(
     // endpoint can't be pointed at arbitrary paths.
     let path = PathBuf::from(&params.file);
     if !state
-        .editable
+        .build
         .read()
-        .expect("editable lock")
+        .expect("build lock")
+        .editable
         .contains(&path)
     {
         return (
@@ -493,5 +526,19 @@ mod tests {
         );
 
         assert!(EditorCommand::parse("   ").is_none());
+
+        // Quotes group arguments, so executable paths with spaces work.
+        let editor =
+            EditorCommand::parse("\"C:\\Program Files\\Editor\\ed.exe\" --goto {file}:{line}")
+                .unwrap();
+        assert_eq!(
+            editor.argv_for("a.adoc", 7),
+            vec!["C:\\Program Files\\Editor\\ed.exe", "--goto", "a.adoc:7"]
+        );
+        let editor = EditorCommand::parse("open -a 'My Editor' {file}").unwrap();
+        assert_eq!(
+            editor.argv_for("a.adoc", 1),
+            vec!["open", "-a", "My Editor", "a.adoc"]
+        );
     }
 }
