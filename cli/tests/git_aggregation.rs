@@ -5,7 +5,7 @@ use std::{path::Path, process::Command};
 
 use bokfell_aggregate::{Aggregator, GitSource};
 use bokfell_model::{ContentCatalog, Coords, Family};
-use bokfell_render::Pipeline;
+use bokfell_render::{DiffBase, PageBlockChange, Pipeline};
 
 fn git(repo: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -123,8 +123,12 @@ fn aggregates_branch_and_tag_as_versions() {
     assert!(per_version[0].1.is_some(), "extra page exists on main");
     assert!(per_version[1].1.is_none(), "extra page absent in 1.0.0");
 
-    // Rendered pages carry versioned URLs and per-ref content.
-    let site = Pipeline::new(catalog, Vec::new()).render_site().unwrap();
+    // Rendered pages carry versioned URLs and per-ref content; diffing
+    // against the previous version is on.
+    let site = Pipeline::new(catalog, Vec::new())
+        .with_diff(DiffBase::PreviousVersion)
+        .render_site()
+        .unwrap();
     let main_index = site
         .pages
         .iter()
@@ -151,9 +155,131 @@ fn aggregates_branch_and_tag_as_versions() {
     // Both versions got their own nav tree.
     assert_eq!(site.navs.len(), 2);
 
+    // Version-pair diffs (PLAN.md §9.1): main's index changed against
+    // 1.0.0 — the wording paragraph was edited and a paragraph added —
+    // while 1.0.0, the oldest version, has nothing to diff against.
+    let diff = main_index.diff.as_ref().expect("main index diff");
+    assert_eq!(diff.base_label, "1.0.0");
+    assert!(!diff.new_page);
+    assert_eq!((diff.added, diff.removed, diff.edited), (1, 0, 1));
+    assert!(diff.blocks.iter().any(|b| matches!(
+        b,
+        PageBlockChange::Edited { diff_html }
+            if diff_html.contains("<del>old</del>") && diff_html.contains("<ins>new</ins>")
+    )));
+    assert!(old_index.diff.is_none());
+
+    // The page that only exists on main is a new page.
+    let extra = site
+        .pages
+        .iter()
+        .find(|p| p.url == "demo/main/extra.html")
+        .expect("extra page rendered");
+    let extra_diff = extra.diff.as_ref().expect("extra page diff");
+    assert!(extra_diff.new_page);
+    assert_eq!(extra_diff.base_label, "1.0.0");
+
+    // PR-preview mode (PLAN.md §9.1): the same content diffed against an
+    // explicit base ref instead of the previous version.
+    let mut head_catalog = ContentCatalog::new();
+    let head_roots = aggregator
+        .collect(&GitSource {
+            branches: vec!["main".to_string()],
+            tags: Vec::new(),
+            ..source.clone()
+        })
+        .unwrap();
+    for root in &head_roots {
+        head_catalog
+            .scan_source_versioned(&root.path, root.version_override.as_deref())
+            .unwrap();
+    }
+    let mut base_catalog = ContentCatalog::new();
+    let base_roots = aggregator
+        .collect(&GitSource {
+            branches: Vec::new(),
+            tags: vec!["v1.0.0".to_string()],
+            version_from_ref: false,
+            ..source.clone()
+        })
+        .unwrap();
+    for root in &base_roots {
+        base_catalog
+            .scan_source_versioned(&root.path, root.version_override.as_deref())
+            .unwrap();
+    }
+
+    let site = Pipeline::new(head_catalog, Vec::new())
+        .with_diff(DiffBase::Catalog {
+            pipeline: Box::new(Pipeline::new(base_catalog, Vec::new())),
+            label: "v1.0.0".to_string(),
+        })
+        .render_site()
+        .unwrap();
+    let index = site
+        .pages
+        .iter()
+        .find(|p| p.url == "demo/main/index.html")
+        .expect("head index rendered");
+    let diff = index.diff.as_ref().expect("head index diff");
+    assert_eq!(diff.base_label, "v1.0.0");
+    assert_eq!((diff.added, diff.removed, diff.edited), (1, 0, 1));
+
     // Aggregating again reuses the commit-keyed export cache.
     let again = aggregator.collect(&source).unwrap();
     assert_eq!(again.len(), 2);
+
+    // A single named ref via collect_ref: even with a tag named like
+    // the branch, the ref's content is aggregated exactly once (the
+    // branch wins), so a --diff-base build never scans duplicates.
+    git(&repo, &["tag", "main"]);
+    let by_name = aggregator
+        .collect_ref(
+            &GitSource {
+                branches: Vec::new(),
+                tags: Vec::new(),
+                ..source.clone()
+            },
+            "main",
+        )
+        .unwrap();
+    assert_eq!(by_name.len(), 1, "roots: {by_name:?}");
+    let by_tag = aggregator
+        .collect_ref(
+            &GitSource {
+                branches: Vec::new(),
+                tags: Vec::new(),
+                ..source.clone()
+            },
+            "v1.0.0",
+        )
+        .unwrap();
+    assert_eq!(by_tag.len(), 1);
+    assert!(matches!(
+        aggregator.collect_ref(
+            &GitSource {
+                branches: Vec::new(),
+                tags: Vec::new(),
+                ..source.clone()
+            },
+            "no-such-ref",
+        ),
+        Err(bokfell_aggregate::AggregateError::NoMatchingRef { .. })
+    ));
+
+    // The name is literal: a pattern would break the single-ref contract
+    // (it could match several branches), so it is rejected outright.
+    assert!(matches!(
+        aggregator.collect_ref(
+            &GitSource {
+                branches: Vec::new(),
+                tags: Vec::new(),
+                ..source.clone()
+            },
+            "v*",
+        ),
+        Err(bokfell_aggregate::AggregateError::PatternRefName { .. })
+    ));
 
     // A negative pattern excludes the branch HEAD resolves to.
     let negated = GitSource {

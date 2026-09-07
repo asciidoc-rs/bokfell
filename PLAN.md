@@ -511,6 +511,21 @@ Ordered to dogfood early and keep every milestone shippable:
 - **M5 — Diff views.** `bokfell-diff` engine, version-pair pages, "what
   changed" index, PR preview mode (base vs head), CI recipe. Exit: a PR
   against a docs repo produces a browsable diff-highlighted preview site.
+  *Core done (2026-09-07): `bokfell-diff` aligns two block sequences
+  (Patience LCS over identical blocks, then same-kind similarity pairing
+  of replaced runs into edits) and emits word-level `<ins>`/`<del>` HTML
+  via `similar`; the pipeline diffs every versioned page against its
+  previous component version by default, or — `--diff-base <ref>` on
+  build/serve — against the same sources aggregated at a base git ref
+  (directory sources resolve through their enclosing repository, so a
+  dirty working tree previews against `main` like a PR). Pages that
+  changed get a "Changed since X" badge toggling an added/edited block
+  overlay (same shared-walk pairing as coverage, riding one combined
+  payload and client script), each edited block opens its word diff on
+  click, and a site-wide `whats-changed.html` index lists changed and new
+  pages. Still inside M5's umbrella: removed-page listing in the index,
+  section-title diffs (heading lines are not overlay blocks), a moved
+  classification, the CI recipe, and per-version-pair index pages.*
 - **M6 — Edit round-trip.** Edit API, click-to-source with editor deep links,
   scroll-sync; optional in-browser source pane. Exit: §9.3 loop demoable
   end-to-end.

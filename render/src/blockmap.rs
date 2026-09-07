@@ -16,6 +16,7 @@ use asciidoc_parser::{
     blocks::{Block, FindBlocks, IsBlock},
     Document, HasSpan,
 };
+use bokfell_diff::BlockUnit;
 
 /// The block contexts the overlay pairs on, with the CSS selector the
 /// client uses for each. Kept as one table so the two walks cannot drift
@@ -56,13 +57,16 @@ pub fn client_selector() -> String {
 }
 
 /// One overlay block: its source start line and line count (in the
-/// preprocessed source the parser saw).
-#[derive(Clone, Copy, Debug)]
+/// preprocessed source the parser saw), plus the [`BlockUnit`] the diff
+/// engine aligns on (resolved context + span text).
+#[derive(Clone, Debug)]
 pub struct OverlayBlock {
     /// 1-based start line.
     pub start_line: u32,
     /// Number of source lines the block's span covers (at least 1).
     pub line_count: u32,
+    /// The block as a diffable unit.
+    pub unit: BlockUnit,
 }
 
 /// Enumerates the overlay blocks of a document in document order:
@@ -76,6 +80,25 @@ pub fn overlay_blocks<'src>(document: &'src Document<'src>) -> Vec<OverlayBlock>
     out
 }
 
+/// Just the diffable units of [`overlay_blocks`], in the same order.
+pub fn overlay_units<'src>(document: &'src Document<'src>) -> Vec<BlockUnit> {
+    overlay_blocks(document)
+        .into_iter()
+        .map(|block| block.unit)
+        .collect()
+}
+
+fn push_block(out: &mut Vec<OverlayBlock>, kind: &str, span: &asciidoc_parser::Span<'_>) {
+    out.push(OverlayBlock {
+        start_line: span.line() as u32,
+        line_count: span.data().lines().count().max(1) as u32,
+        unit: BlockUnit {
+            kind: kind.to_string(),
+            text: span.data().to_string(),
+        },
+    });
+}
+
 fn walk<'src>(blocks: impl Iterator<Item = &'src Block<'src>>, out: &mut Vec<OverlayBlock>) {
     for block in blocks {
         match block {
@@ -85,25 +108,14 @@ fn walk<'src>(blocks: impl Iterator<Item = &'src Block<'src>>, out: &mut Vec<Ove
             // `.olist`, `.dlist`, `.colist` — all in the selector table),
             // but the AST context is the generic `list`, so lists are
             // matched structurally. Items are never descended into.
-            Block::List(list) => {
-                let span = list.span();
-                out.push(OverlayBlock {
-                    start_line: span.line() as u32,
-                    line_count: span.data().lines().count().max(1) as u32,
-                });
-            }
+            Block::List(list) => push_block(out, "list", &list.span()),
             other => {
                 let context = other.resolved_context();
                 if OVERLAY_CONTEXTS
                     .iter()
                     .any(|(token, _)| *token == context.as_ref())
                 {
-                    let span = other.span();
-                    let line_count = span.data().lines().count().max(1) as u32;
-                    out.push(OverlayBlock {
-                        start_line: span.line() as u32,
-                        line_count,
-                    });
+                    push_block(out, context.as_ref(), &other.span());
                 }
             }
         }
