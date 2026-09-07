@@ -7,10 +7,9 @@
 //! the including file for targets that are not resource IDs.
 
 use std::{
-    cell::RefCell,
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use asciidoc_parser::{
@@ -26,12 +25,14 @@ use bokfell_model::{ContentCatalog, Coords, Family, ResourceRef};
 /// target served, which coordinates it resolved to — the parser hands the
 /// including file's target string back as `source` for its nested
 /// includes.
+/// (`served` is a `Mutex`, not a `RefCell`, so the handler is `Send +
+/// Sync` — required to travel inside `asciidoc_html5::Options`.)
 #[derive(Debug)]
 pub struct CatalogIncludeHandler {
     catalog: Arc<ContentCatalog>,
     root: Coords,
     root_dir: Option<PathBuf>,
-    served: RefCell<HashMap<String, Coords>>,
+    served: Mutex<HashMap<String, Coords>>,
 }
 
 impl CatalogIncludeHandler {
@@ -42,7 +43,7 @@ impl CatalogIncludeHandler {
             catalog,
             root,
             root_dir,
-            served: RefCell::new(HashMap::new()),
+            served: Mutex::new(HashMap::new()),
         }
     }
 
@@ -51,7 +52,7 @@ impl CatalogIncludeHandler {
     /// otherwise.
     fn coords_for(&self, source: Option<&str>) -> Coords {
         source
-            .and_then(|s| self.served.borrow().get(s).cloned())
+            .and_then(|s| self.served.lock().expect("served lock").get(s).cloned())
             .unwrap_or_else(|| self.root.clone())
     }
 
@@ -127,7 +128,8 @@ impl IncludeFileHandler for CatalogIncludeHandler {
                 let resolution = self.read(&file.src_path);
                 if matches!(resolution, IncludeResolution::Found(_)) {
                     self.served
-                        .borrow_mut()
+                        .lock()
+                        .expect("served lock")
                         .insert(target.to_string(), file.coords.clone());
                 }
                 return resolution;

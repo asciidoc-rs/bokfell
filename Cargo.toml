@@ -23,5 +23,5 @@ version = "0.1.0"
 # Shared dependency versions; more of the M0 technology stack (PLAN.md §7)
 # lands here as it is wired in.
 [workspace.dependencies]
-asciidoc-html5 = "0.2.1"
+asciidoc-html5 = "0.2.2"
 asciidoc-parser = "0.31.0"

@@ -352,19 +352,21 @@ in shape.
 - **Catalogs**: `Document::catalog()` (ids, reftexts, footnotes; images/links
   with `catalog_assets`) feeds the site catalog, asset validation, and search
   extraction.
-- **One seam gap, nearly closed**: `asciidoc-html5` 0.2.1 shipped the
+- **Seam closed**: `asciidoc-html5` 0.2.1 shipped the
   `load_deferred(source, &Options) -> (Document, Parser)` seam proposed in
-  [asciidoc-html5#330](https://github.com/asciidoc-rs/asciidoc-html5/issues/330).
-  One hook remains before Bokfell can adopt it: `Options` can only install
-  the *filesystem* include handler, while catalog-backed resource-ID
-  includes need Bokfell's custom `IncludeFileHandler` attached before the
-  parse — filed as
-  [asciidoc-html5#337](https://github.com/asciidoc-rs/asciidoc-html5/issues/337).
-  Until that lands, `bokfell-render` keeps configuring a raw `Parser`
-  directly (`with_safe_mode`, `with_intrinsic_attribute`,
-  `with_include_file_handler`, `with_primary_file_name`), forgoing the
-  extra seeding `Options::apply` provides (safe-mode attribute locks,
-  version intrinsics, unset seeds).
+  [asciidoc-html5#330](https://github.com/asciidoc-rs/asciidoc-html5/issues/330),
+  and 0.2.2 added the missing hook
+  ([asciidoc-html5#337](https://github.com/asciidoc-rs/asciidoc-html5/issues/337)):
+  `Options` now carries a custom `IncludeFileHandler`, so `bokfell-render`
+  builds one `Options` per page (safe mode, attribute overrides, the
+  catalog include handler, `input_file`, embedded output,
+  `source_locations`) and loads through `load_deferred` — gaining
+  `Options::apply`'s full seeding. 0.2.2's opt-in `data-source-line`
+  annotations
+  ([asciidoc-html5#339](https://github.com/asciidoc-rs/asciidoc-html5/issues/339))
+  also make the overlay block pairing exact: the client anchors each
+  overlay block by its source line, with the shared-walk count pairing
+  kept as a fallback.
 
 Renderer completeness is tracked upstream and is not a blocker: unsupported
 constructs render as visible `<!-- unsupported -->` comments, and the

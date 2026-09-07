@@ -22,10 +22,7 @@ mod resolver;
 
 use std::sync::Arc;
 
-use asciidoc_parser::{
-    parser::{HtmlInlineRenderer, ModificationContext},
-    Parser, SafeMode,
-};
+use asciidoc_parser::{parser::HtmlInlineRenderer, Parser, SafeMode};
 pub use blockmap::client_selector as overlay_client_selector;
 use bokfell_coverage::{CoverageScope, PageCoverage};
 use bokfell_diff::{diff_blocks, BlockChange};
@@ -77,6 +74,10 @@ pub struct RenderedPage {
     /// (PLAN.md §9.3). `None` for a block whose origin can't be traced
     /// to a file.
     pub block_sources: Vec<Option<(std::path::PathBuf, usize)>>,
+    /// Per overlay block, the 1-based *preprocessed* line its span starts
+    /// at — the value the rendered container's `data-source-line`
+    /// attribute carries, letting the client anchor overlays exactly.
+    pub block_lines: Vec<u32>,
 }
 
 /// One page's changes relative to its diff base (the previous component
@@ -159,11 +160,26 @@ struct ParsedPage {
     coords: Coords,
     url: String,
     /// The parser's `primary_file_name` for this page — the name the
-    /// source map reports for the page's own (top-level) lines.
+    /// source map reports for the page's own (top-level) lines. Matches
+    /// the canonicalized path `Options::input_file` sets.
     primary_file_name: String,
+    /// The options the page was loaded with (also drive its conversion).
+    options: asciidoc_html5::Options,
     parser: Parser,
     document: asciidoc_parser::Document<'static>,
     warnings: Vec<String>,
+}
+
+/// The name `Options::input_file` will register as the parser's primary
+/// file name: the canonicalized path, falling back to an absolutized or
+/// verbatim one — mirrored here so source-map origins compare equal.
+fn primary_name_for(path: &std::path::Path) -> String {
+    path.canonicalize()
+        .ok()
+        .or_else(|| std::env::current_dir().ok().map(|cwd| cwd.join(path)))
+        .unwrap_or_else(|| path.to_path_buf())
+        .display()
+        .to_string()
 }
 
 impl Pipeline {
@@ -228,7 +244,6 @@ impl Pipeline {
         };
 
         // Phase 2b + 3: resolve each page against the site and render it.
-        let render_options = asciidoc_html5::Options::new().embedded(true);
         let mut pages = Vec::new();
         for (page_index, page) in parsed.iter_mut().enumerate() {
             let own = index
@@ -245,9 +260,11 @@ impl Pipeline {
                     .push(format!("unresolved reference: {}", warning.target));
             }
 
-            let contents = asciidoc_html5::convert_document_with(&page.document, &render_options);
+            let contents = asciidoc_html5::convert_document_with(&page.document, &page.options);
             let coverage = self.page_coverage(page);
-            let block_sources = self.block_sources(page);
+            let overlay = blockmap::overlay_blocks(&page.document);
+            let block_sources = self.block_sources(page, &overlay);
+            let block_lines: Vec<u32> = overlay.iter().map(|b| b.start_line).collect();
 
             pages.push(RenderedPage {
                 coords: page.coords.clone(),
@@ -259,6 +276,7 @@ impl Pipeline {
                 coverage,
                 diff: diffs[page_index].take(),
                 block_sources,
+                block_lines,
             });
         }
 
@@ -287,8 +305,8 @@ impl Pipeline {
             source,
         })?;
 
-        let mut parser = self.build_parser(file, component, Some(&url));
-        let document = parser.parse_deferred(&source);
+        let options = self.build_options(file, component, Some(&url));
+        let (document, parser) = asciidoc_html5::load_deferred(&source, &options);
 
         let warnings = document
             .warnings()
@@ -298,81 +316,65 @@ impl Pipeline {
         Ok(ParsedPage {
             coords: file.coords.clone(),
             url,
-            primary_file_name: file.src_path.display().to_string(),
+            primary_file_name: primary_name_for(&file.src_path),
+            options,
             parser,
             document,
             warnings,
         })
     }
 
-    /// Builds the configured parser for one source file.
+    /// Builds the load/convert options for one source file: safe mode,
+    /// the catalog-backed include handler, attribute overrides
+    /// (`Options::attribute` maps to the same API-only modification
+    /// context the raw parser used), embedded output, and
+    /// `data-source-line` annotations for exact overlay anchoring.
     ///
     /// `page_url` supplies the URL context for the `imagesdir` seed; nav
-    /// files pass `None` (their links are resolved through the catalog, not
-    /// attribute-relative paths).
-    ///
-    /// This hand-configures a raw `Parser` rather than using
-    /// `asciidoc_html5::load_deferred` (0.2.1): that seam applies the full
-    /// `Options` bundle but cannot yet attach the catalog-backed include
-    /// handler this pipeline requires — see
-    /// <https://github.com/asciidoc-rs/asciidoc-html5/issues/337>. Once
-    /// that hook exists, this function collapses onto `load_deferred`.
-    fn build_parser(
+    /// files pass `None` (their links are resolved through the catalog,
+    /// not attribute-relative paths).
+    fn build_options(
         &self,
         file: &VirtualFile,
         component: &Component,
         page_url: Option<&str>,
-    ) -> Parser {
+    ) -> asciidoc_html5::Options {
         let include_handler = includes::CatalogIncludeHandler::new(
             self.catalog.clone(),
             file.coords.clone(),
             file.src_path.parent().map(|p| p.to_path_buf()),
         );
 
-        let mut parser = Parser::default()
-            .with_safe_mode(SafeMode::Safe)
-            .with_primary_file_name(file.src_path.display().to_string())
-            .with_include_file_handler(include_handler);
+        let mut options = asciidoc_html5::Options::new()
+            .safe_mode(SafeMode::Safe)
+            .input_file(&file.src_path)
+            .include_file_handler(include_handler)
+            .embedded(true)
+            .source_locations(true);
 
         // Site-wide attributes, then the component's (later wins).
         let component_attrs = component.attribute_seeds();
         for (name, value) in self.site_attrs.iter().chain(component_attrs.iter()) {
             if let Some(value) = value {
-                parser = parser.with_intrinsic_attribute(name, value, ModificationContext::ApiOnly);
+                options = options.attribute(name, value);
             }
         }
 
-        // Intrinsic page context attributes (Antora's page-* family).
-        parser = parser
-            .with_intrinsic_attribute(
-                "page-component-name",
-                &component.desc.name,
-                ModificationContext::ApiOnly,
-            )
-            .with_intrinsic_attribute(
-                "page-component-title",
-                component.desc.title(),
-                ModificationContext::ApiOnly,
-            )
-            .with_intrinsic_attribute(
-                "page-module",
-                &file.coords.module,
-                ModificationContext::ApiOnly,
-            );
+        // Page context attributes (Antora's page-* family).
+        options = options
+            .attribute("page-component-name", &component.desc.name)
+            .attribute("page-component-title", component.desc.title())
+            .attribute("page-module", &file.coords.module);
 
         // `imagesdir` points at the module's published `_images/` directory,
         // relative to the page, so `image::name.png[]` resolves in place.
         if let Some(url) = page_url {
             if let Some(imagesdir) = imagesdir_for(url, &file.coords) {
-                parser = parser.with_intrinsic_attribute(
-                    "imagesdir",
-                    imagesdir,
-                    ModificationContext::ApiOnly,
-                );
+                options = options.attribute("imagesdir", imagesdir);
             }
         }
 
-        parser
+        options
     }
 
     fn build_nav(&self, component: &Component, index: &SiteIndex) -> Result<NavTree, RenderError> {
@@ -395,8 +397,8 @@ impl Pipeline {
                     source,
                 })?;
 
-            let mut parser = self.build_parser(file, component, None);
-            let document = parser.parse_deferred(&source);
+            let options = self.build_options(file, component, None);
+            let (document, _parser) = asciidoc_html5::load_deferred(&source, &options);
 
             // Nav entries resolve as if from a page at the nav's module
             // root.
@@ -561,11 +563,15 @@ impl Pipeline {
     /// Traces every overlay block back to the source file and line it
     /// starts at (PLAN.md §9.3): the page's own file for top-level
     /// blocks, the resolved include target for spliced-in ones.
-    fn block_sources(&self, page: &ParsedPage) -> Vec<Option<(std::path::PathBuf, usize)>> {
+    fn block_sources(
+        &self,
+        page: &ParsedPage,
+        overlay: &[blockmap::OverlayBlock],
+    ) -> Vec<Option<(std::path::PathBuf, usize)>> {
         let source_map = page.document.source_map();
         let root_dir = std::path::Path::new(&page.primary_file_name).parent();
 
-        blockmap::overlay_blocks(&page.document)
+        overlay
             .iter()
             .map(|block| {
                 let origin = source_map.original_file_and_line(block.start_line as usize)?;

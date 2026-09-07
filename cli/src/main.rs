@@ -615,6 +615,11 @@ fn overlay_json(page: &RenderedPage, edit: bool) -> Option<String> {
         "selector".to_string(),
         serde_json::json!(bokfell_render::overlay_client_selector()),
     );
+    // Exact anchors: each overlay block's preprocessed start line, the
+    // value its rendered container carries as `data-source-line`
+    // (asciidoc-html5 0.2.2, issue #339). The selector walk above stays
+    // as the fallback for content without the annotations.
+    payload.insert("lines".to_string(), serde_json::json!(page.block_lines));
     if let Some(coverage) = coverage {
         payload.insert("coverage".to_string(), coverage);
     }
