@@ -83,6 +83,12 @@ enum Command {
         /// version.
         #[arg(long, value_name = "REF")]
         diff_base: Option<String>,
+
+        /// Editor command for click-to-source editing; `{file}` and
+        /// `{line}` are substituted (e.g. "code --goto {file}:{line}").
+        /// Defaults to $BOKFELL_EDITOR, then `code` when available.
+        #[arg(long, value_name = "TEMPLATE")]
+        editor: Option<String>,
     },
 }
 
@@ -107,12 +113,14 @@ fn main() -> anyhow::Result<()> {
             port,
             fetch,
             diff_base,
+            editor,
         } => serve(
             &playbook,
             theme.as_deref(),
             port,
             fetch,
             diff_base.as_deref(),
+            editor.as_deref(),
         ),
     }
 }
@@ -130,12 +138,17 @@ const CHANGES_INDEX_URL: &str = "whats-changed.html";
 ///
 /// Warnings are printed to stderr as they surface; the count is returned
 /// alongside the files.
+/// A composed site plus the source files its pages trace back to (the
+/// edit API's allowlist; empty unless `edit` was requested).
+type ComposedSite = (SiteFiles, std::collections::HashSet<PathBuf>);
+
 fn compose_site(
     playbook_path: &Path,
     theme_dir: Option<&Path>,
     fetch: bool,
     diff_base_ref: Option<&str>,
-) -> anyhow::Result<SiteFiles> {
+    edit: bool,
+) -> anyhow::Result<ComposedSite> {
     let playbook = Playbook::load(playbook_path)?;
 
     let cache_dir = playbook
@@ -289,7 +302,7 @@ fn compose_site(
             versions: &versions,
             coverage: page.coverage.as_ref().map(coverage_view),
             diff: diff_view(page),
-            overlay_json: overlay_json(page),
+            overlay_json: overlay_json(page, edit),
         })?;
         files.push((page.url.clone(), html.into_bytes()));
     }
@@ -373,7 +386,18 @@ fn compose_site(
         Theme::redirect_page(&start_url).into_bytes(),
     ));
 
-    Ok(files)
+    // The edit API's allowlist: every source file a rendered block
+    // traces back to.
+    let mut editable = std::collections::HashSet::new();
+    if edit {
+        for page in &site.pages {
+            for source in page.block_sources.iter().flatten() {
+                editable.insert(source.0.clone());
+            }
+        }
+    }
+
+    Ok((files, editable))
 }
 
 fn build(
@@ -388,7 +412,7 @@ fn build(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| playbook.output_dir());
 
-    let files = compose_site(playbook_path, theme_dir, fetch, diff_base)?;
+    let (files, _) = compose_site(playbook_path, theme_dir, fetch, diff_base, false)?;
     let count = files.len();
     for (url, bytes) in files {
         write_output(&out_dir, &url, &bytes)?;
@@ -407,6 +431,7 @@ fn serve(
     port: u16,
     fetch: bool,
     diff_base: Option<&str>,
+    editor: Option<&str>,
 ) -> anyhow::Result<()> {
     // Watch the playbook, every *local directory* content source, and the
     // theme directory (git sources are cache-backed and not watched).
@@ -435,8 +460,12 @@ fn serve(
             theme_dir.as_deref(),
             fetch_now,
             diff_base.as_deref(),
+            true,
         )
-        .map(|files| files.into_iter().collect())
+        .map(|(files, editable)| bokfell_serve::SiteBuild {
+            files: files.into_iter().collect(),
+            editable,
+        })
         .map_err(|e| format!("{e:#}"))
     });
 
@@ -446,10 +475,36 @@ fn serve(
         bokfell_serve::ServeOptions {
             addr,
             watch,
+            editor: editor_command(editor),
             ..Default::default()
         },
     )?;
     Ok(())
+}
+
+/// Resolves the editor for click-to-source editing: the `--editor` flag,
+/// then `$BOKFELL_EDITOR`, then `code --goto` when VS Code's CLI is on
+/// the PATH. `None` leaves the edit endpoint answering with guidance.
+fn editor_command(flag: Option<&str>) -> Option<bokfell_serve::EditorCommand> {
+    if let Some(template) = flag {
+        return bokfell_serve::EditorCommand::parse(template);
+    }
+    if let Ok(template) = std::env::var("BOKFELL_EDITOR") {
+        return bokfell_serve::EditorCommand::parse(&template);
+    }
+
+    // `code --goto file:line` is the one broadly-installed GUI editor
+    // CLI; terminal editors need a TTY the server doesn't have.
+    let code_available = std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|dir| {
+            let candidate = dir.join("code");
+            candidate.is_file() || (cfg!(windows) && dir.join("code.cmd").is_file())
+        })
+    });
+    if code_available {
+        return bokfell_serve::EditorCommand::parse("code --goto {file}:{line}");
+    }
+    None
 }
 
 /// Resolves the playbook's `site.start_page` (or falls back to the first
@@ -513,10 +568,11 @@ fn diff_view(page: &RenderedPage) -> Option<DiffView> {
 
 /// Builds the combined client overlay payload: the block-pairing
 /// selector plus per-block arrays for the overlays this page carries —
-/// coverage status tokens, and diff changes (`null` unchanged, `"added"`,
-/// or `["edited", word_diff_html]`). `<` is escaped so the JSON embeds
-/// safely in a `<script>` element.
-fn overlay_json(page: &RenderedPage) -> Option<String> {
+/// coverage status tokens, diff changes (`null` unchanged, `"added"`,
+/// or `["edited", word_diff_html]`), and (in serve mode) edit targets
+/// (`[file, line]` per block). `<` is escaped so the JSON embeds safely
+/// in a `<script>` element.
+fn overlay_json(page: &RenderedPage, edit: bool) -> Option<String> {
     let coverage = page.coverage.as_ref().map(|cov| {
         serde_json::json!(cov
             .blocks
@@ -535,7 +591,22 @@ fn overlay_json(page: &RenderedPage) -> Option<String> {
             })
             .collect::<Vec<_>>())
     });
-    if coverage.is_none() && diff.is_none() {
+    let edit_targets = edit
+        .then(|| {
+            page.block_sources
+                .iter()
+                .map(|source| match source {
+                    Some((file, line)) => {
+                        serde_json::json!([file.display().to_string(), line])
+                    }
+                    None => serde_json::Value::Null,
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|targets| targets.iter().any(|t| !t.is_null()))
+        .map(serde_json::Value::Array);
+
+    if coverage.is_none() && diff.is_none() && edit_targets.is_none() {
         return None;
     }
 
@@ -549,6 +620,9 @@ fn overlay_json(page: &RenderedPage) -> Option<String> {
     }
     if let Some(diff) = diff {
         payload.insert("diff".to_string(), diff);
+    }
+    if let Some(edit_targets) = edit_targets {
+        payload.insert("edit".to_string(), edit_targets);
     }
     Some(
         serde_json::Value::Object(payload)

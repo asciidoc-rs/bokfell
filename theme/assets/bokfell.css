@@ -375,6 +375,28 @@ span.cov-high, span.cov-mid, span.cov-low {
   box-shadow: inset 3px 0 0 #e03131;
 }
 
+/* Click-to-source edit buttons (serve mode, PLAN.md §9.3). */
+.doc .bokfell-edit {
+  float: right;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1;
+  border: 1px solid var(--bf-border);
+  border-radius: 4px;
+  background: var(--bf-nav-bg);
+  color: var(--bf-muted);
+  padding: 0.15rem 0.35rem;
+  margin: 0.2rem 0 0.2rem 0.5rem;
+  cursor: pointer;
+  opacity: 0.35;
+}
+
+.doc .bokfell-edit:hover {
+  opacity: 1;
+  color: var(--bf-accent);
+  border-color: var(--bf-accent);
+}
+
 .diff-overlay .doc [data-diff] { border-radius: 3px; }
 
 .diff-overlay .doc [data-diff="added"] {

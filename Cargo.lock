@@ -279,6 +279,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "notify-debouncer-full",
+ "serde",
  "thiserror",
  "tokio",
 ]

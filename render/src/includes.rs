@@ -6,7 +6,12 @@
 //! handler serves catalog resources — falling back to a path relative to
 //! the including file for targets that are not resource IDs.
 
-use std::{cell::RefCell, collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use asciidoc_parser::{
     attributes::Attrlist,
@@ -60,6 +65,38 @@ impl CatalogIncludeHandler {
             Err(_) => IncludeResolution::NotReadable,
         }
     }
+}
+
+/// Resolves an include target (as recorded in a document's source map)
+/// back to the file it was served from, mirroring
+/// [`CatalogIncludeHandler`]'s resolution order: resource IDs through the
+/// catalog, then a path relative to the including file's directory.
+///
+/// Targets of *nested* includes resolve against `from` (the page's own
+/// coordinates) rather than the intermediate file's, so a deeply nested
+/// origin can come back `None`; callers treat that as "not editable".
+pub fn resolve_include_source(
+    catalog: &ContentCatalog,
+    from: &Coords,
+    root_dir: Option<&Path>,
+    target: &str,
+) -> Option<PathBuf> {
+    if let Some(reference) = ResourceRef::parse(target) {
+        let default_family = if reference.family.is_some() {
+            Family::Partial
+        } else if from.family == Family::Partial || from.family == Family::Example {
+            from.family
+        } else {
+            Family::Partial
+        };
+        if let Some(file) = catalog.resolve(&reference, from, default_family) {
+            return Some(file.src_path.clone());
+        }
+    }
+
+    root_dir
+        .map(|dir| dir.join(target))
+        .filter(|path| path.is_file())
 }
 
 impl IncludeFileHandler for CatalogIncludeHandler {

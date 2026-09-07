@@ -1,5 +1,6 @@
-// Bokfell page overlays: spec coverage (PLAN.md §9.2) and diff
-// highlighting (PLAN.md §9.1).
+// Bokfell page overlays: spec coverage (PLAN.md §9.2), diff
+// highlighting (PLAN.md §9.1), and click-to-source editing (PLAN.md
+// §9.3, serve mode only).
 //
 // The page carries a JSON payload (#bokfell-overlay-data) with the block
 // pairing selector plus per-block arrays for whichever overlays the page
@@ -107,6 +108,46 @@
       }
     }
   );
+
+  // Click-to-source editing (serve mode): each block with a known
+  // source location gets a small button that asks the dev server to
+  // open that file and line in the configured editor; the watcher and
+  // livereload complete the loop.
+  if (Array.isArray(data.edit) && blocks.length === data.edit.length) {
+    for (var k = 0; k < blocks.length; k++) {
+      if (data.edit[k]) {
+        addEditButton(blocks[k], data.edit[k][0], data.edit[k][1]);
+      }
+    }
+  }
+
+  function addEditButton(block, file, line) {
+    var button = document.createElement("button");
+    button.className = "bokfell-edit";
+    button.type = "button";
+    button.title = "Edit " + file + ":" + line;
+    button.textContent = "\u270e";
+    button.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      var params = new URLSearchParams({ file: file, line: String(line) });
+      fetch("/__bokfell/edit?" + params.toString(), { method: "POST" }).then(
+        function (response) {
+          if (!response.ok) {
+            response.text().then(function (text) {
+              window.alert(text || "Cannot open the editor.");
+            });
+          }
+        },
+        function () {
+          window.alert("Cannot reach the dev server.");
+        }
+      );
+    });
+
+    // Inserted before the block (a button can't live inside a <table>)
+    // and floated to its top right by the stylesheet.
+    block.parentNode.insertBefore(button, block);
+  }
 
   // An edited block toggles a word-diff panel of its source on click
   // (while the diff overlay is on). The HTML is server-generated:

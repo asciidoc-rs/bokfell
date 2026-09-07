@@ -42,7 +42,11 @@ previous version (or against a git ref with `--diff-base`, previewing a
 working tree or PR branch), changed pages get a "Changed since X" badge
 that highlights added/edited blocks — click an edited block for its
 word-level diff — and a site-wide `whats-changed.html` lists what
-changed. Click-to-source editing is still to come — see
+changed. And `bokfell serve` closes the edit loop: every rendered block
+carries an edit button that opens your editor at the exact source file
+and line (`--editor "cmd {file}:{line}"`, `$BOKFELL_EDITOR`, or VS
+Code's `code --goto` by default) — save, and the watcher rebuilds and
+reloads the browser. See
 [`PLAN.md`](PLAN.md) for the architecture
 and milestone roadmap, and [`CLAUDE.md`](CLAUDE.md) for contributor
 conventions (including important license boundaries around code borrowed
@@ -65,7 +69,8 @@ spec-coverage overlay: click its "60% verified" badge to shade each block
 by verification status. And after editing a page, rebuild with
 `cargo run --bin bokfell -- build --diff-base main` — every page you
 changed gets a "Changed since main" badge that highlights exactly what
-you added or edited.
+you added or edited. While `serve` runs, hover any block and click its
+pencil button to jump straight to that block's source in your editor.
 
 ## Building a site
 

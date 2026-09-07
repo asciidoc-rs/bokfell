@@ -13,5 +13,6 @@ publish = false
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
 notify-debouncer-full = "0.7"
+serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync"] }

@@ -232,5 +232,19 @@ fn projects_coverage_onto_rendered_blocks() {
     // Pages without coverage data stay overlay-free.
     assert!(setup.coverage.is_none());
 
+    // Click-to-source targets (PLAN.md §9.3): the index's own paragraph
+    // points into index.adoc at its line, while the included paragraph
+    // resolves through the catalog to the partial it came from.
+    assert_eq!(index.block_sources.len(), 2);
+    let own = index.block_sources[0].as_ref().expect("own block source");
+    assert!(own.0.ends_with("modules/ROOT/pages/index.adoc"), "{own:?}");
+    assert_eq!(own.1, 4);
+    let included = index.block_sources[1].as_ref().expect("included source");
+    assert!(
+        included.0.ends_with("modules/ROOT/partials/shared.adoc"),
+        "{included:?}"
+    );
+    assert_eq!(included.1, 1);
+
     std::fs::remove_dir_all(&root).ok();
 }
