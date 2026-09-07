@@ -107,6 +107,16 @@ fn builds_a_cross_referenced_site() {
     // The include was served from the partials family.
     assert!(index.contents.contains("A shared sentence."));
 
+    // Rendered blocks carry data-source-line anchors (asciidoc-html5
+    // 0.2.2), and they line up with the overlay walk's block lines.
+    assert!(
+        index.contents.contains("data-source-line=\"4\""),
+        "contents: {}",
+        index.contents
+    );
+    assert_eq!(index.block_lines.len(), 2);
+    assert_eq!(index.block_lines[0], 4);
+
     // The reverse xref climbs out of the module directory.
     assert!(setup
         .contents

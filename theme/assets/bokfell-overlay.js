@@ -25,21 +25,45 @@
   }
   if (!data || typeof data.selector !== "string") return;
 
-  // Outermost-only collection: drop any match nested inside another match.
-  var matches = article.querySelectorAll(data.selector);
-  var blocks = [];
-  for (var i = 0; i < matches.length; i++) {
-    var el = matches[i];
-    var ancestor = el.parentElement;
-    var nested = false;
-    while (ancestor && ancestor !== article) {
-      if (ancestor.matches(data.selector)) {
-        nested = true;
-        break;
-      }
-      ancestor = ancestor.parentElement;
+  // Exact anchoring first: the payload's per-block source lines match
+  // the containers' data-source-line attributes (asciidoc-html5 0.2.2),
+  // consumed in document order so a container and its same-line inner
+  // block cannot collide. Falls back to the shared outermost-only
+  // selector walk when the annotations are missing or incomplete.
+  var blocks = null;
+  if (Array.isArray(data.lines) && data.lines.length) {
+    var byLine = {};
+    var annotated = article.querySelectorAll("[data-source-line]");
+    for (var a = 0; a < annotated.length; a++) {
+      var lineValue = annotated[a].getAttribute("data-source-line");
+      (byLine[lineValue] || (byLine[lineValue] = [])).push(annotated[a]);
     }
-    if (!nested) blocks.push(el);
+    blocks = [];
+    for (var l = 0; l < data.lines.length; l++) {
+      var candidates = byLine[String(data.lines[l])];
+      blocks.push(candidates && candidates.length ? candidates.shift() : null);
+    }
+    if (blocks.indexOf(null) !== -1) blocks = null;
+  }
+
+  if (!blocks) {
+    // Outermost-only collection: drop any match nested inside another
+    // match.
+    var matches = article.querySelectorAll(data.selector);
+    blocks = [];
+    for (var i = 0; i < matches.length; i++) {
+      var el = matches[i];
+      var ancestor = el.parentElement;
+      var nested = false;
+      while (ancestor && ancestor !== article) {
+        if (ancestor.matches(data.selector)) {
+          nested = true;
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+      if (!nested) blocks.push(el);
+    }
   }
 
   // Wires one overlay: verifies the count, applies the block marks, and
