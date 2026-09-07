@@ -75,6 +75,25 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  js-tests:
+    name: JS tests
+    if: |
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository ||
+      contains(github.event.pull_request.labels.*.name, 'safe to test')
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      # The theme's client scripts (overlay pairing, search) carry real
+      # logic; their pure functions are unit-tested with Node's built-in
+      # runner (preinstalled on the GitHub runners — no npm install).
+      - name: Run theme client tests
+        run: node --test "theme/tests/*.test.js"
+
   fmt:
     name: Rustfmt
     if: |

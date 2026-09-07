@@ -4,14 +4,42 @@
 //
 // The page carries a JSON payload (#bokfell-overlay-data) with the block
 // pairing selector plus per-block arrays for whichever overlays the page
-// has, enumerated server-side from the AST in document order. This
-// script collects the article's matching elements outermost-only —
-// mirroring the server's "never descend into an emitted block" rule —
-// and wires each overlay's toggle only when its array length matches the
-// element count, so a mismatch degrades to no overlay instead of marking
-// the wrong blocks.
+// has, enumerated server-side from the AST in document order. Blocks
+// anchor exactly by their data-source-line attributes when present
+// (asciidoc-html5 0.2.2); otherwise this script collects the article's
+// matching elements outermost-only — mirroring the server's "never
+// descend into an emitted block" rule — and each overlay's toggle wires
+// only when its array length matches the element count, so a mismatch
+// degrades to no overlay instead of marking the wrong blocks.
+
+// Pairs payload block lines with annotated elements. `annotatedLines` is
+// every data-source-line value in document order; `targetLines` is the
+// payload's per-block start lines. Returns, per target, the index of the
+// matched element — or null overall when any target has no candidate
+// left (the caller then falls back to the selector walk). Candidates
+// sharing a line are consumed in document order, so a container and a
+// same-line inner block cannot collide. Defined outside the DOM closure
+// (and exported below) so it is unit-testable under Node.
+function bokfellPairByLine(annotatedLines, targetLines) {
+  var byLine = {};
+  for (var i = 0; i < annotatedLines.length; i++) {
+    var key = String(annotatedLines[i]);
+    (byLine[key] || (byLine[key] = [])).push(i);
+  }
+  var indexes = [];
+  for (var t = 0; t < targetLines.length; t++) {
+    var candidates = byLine[String(targetLines[t])];
+    if (!candidates || !candidates.length) return null;
+    indexes.push(candidates.shift());
+  }
+  return indexes;
+}
+
 (function () {
   "use strict";
+
+  // Under Node (tests), there is no DOM to wire.
+  if (typeof document === "undefined") return;
 
   var dataEl = document.getElementById("bokfell-overlay-data");
   var article = document.querySelector("main.doc article");
@@ -32,18 +60,18 @@
   // selector walk when the annotations are missing or incomplete.
   var blocks = null;
   if (Array.isArray(data.lines) && data.lines.length) {
-    var byLine = {};
     var annotated = article.querySelectorAll("[data-source-line]");
+    var annotatedLines = [];
     for (var a = 0; a < annotated.length; a++) {
-      var lineValue = annotated[a].getAttribute("data-source-line");
-      (byLine[lineValue] || (byLine[lineValue] = [])).push(annotated[a]);
+      annotatedLines.push(annotated[a].getAttribute("data-source-line"));
     }
-    blocks = [];
-    for (var l = 0; l < data.lines.length; l++) {
-      var candidates = byLine[String(data.lines[l])];
-      blocks.push(candidates && candidates.length ? candidates.shift() : null);
+    var indexes = bokfellPairByLine(annotatedLines, data.lines);
+    if (indexes) {
+      blocks = [];
+      for (var l = 0; l < indexes.length; l++) {
+        blocks.push(annotated[indexes[l]]);
+      }
     }
-    if (blocks.indexOf(null) !== -1) blocks = null;
   }
 
   if (!blocks) {
@@ -192,3 +220,8 @@
     });
   }
 })();
+
+// Node test hook; browsers never define `module`.
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { pairByLine: bokfellPairByLine };
+}
