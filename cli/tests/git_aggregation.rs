@@ -267,6 +267,20 @@ fn aggregates_branch_and_tag_as_versions() {
         Err(bokfell_aggregate::AggregateError::NoMatchingRef { .. })
     ));
 
+    // The name is literal: a pattern would break the single-ref contract
+    // (it could match several branches), so it is rejected outright.
+    assert!(matches!(
+        aggregator.collect_ref(
+            &GitSource {
+                branches: Vec::new(),
+                tags: Vec::new(),
+                ..source.clone()
+            },
+            "v*",
+        ),
+        Err(bokfell_aggregate::AggregateError::PatternRefName { .. })
+    ));
+
     // A negative pattern excludes the branch HEAD resolves to.
     let negated = GitSource {
         branches: vec!["HEAD".to_string(), "!main".to_string()],

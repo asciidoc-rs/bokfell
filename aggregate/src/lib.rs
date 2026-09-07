@@ -52,6 +52,13 @@ pub enum AggregateError {
         tags: Vec<String>,
     },
 
+    /// A literal ref name (e.g. a diff base) contains pattern syntax.
+    #[error("ref name {refname:?} must be literal — glob patterns are only supported in a source's branch/tag lists")]
+    PatternRefName {
+        /// The offending name.
+        refname: String,
+    },
+
     /// The start path does not exist in a matched ref.
     #[error("start path {start_path:?} not found in {url} ref {refname}")]
     StartPathMissing {
@@ -138,11 +145,21 @@ impl Aggregator {
     /// and a tag with the same name yields that ref's content exactly
     /// once (the branch wins). `source`'s own branch/tag patterns are
     /// ignored; everything else (URL, start path, versioning) applies.
+    ///
+    /// The name is literal: pattern syntax (`*`, leading `!`) is
+    /// rejected, so this can never select more than one ref per
+    /// namespace.
     pub fn collect_ref(
         &self,
         source: &GitSource,
         refname: &str,
     ) -> Result<Vec<CollectedRoot>, AggregateError> {
+        if refname.contains('*') || refname.starts_with('!') {
+            return Err(AggregateError::PatternRefName {
+                refname: refname.to_string(),
+            });
+        }
+
         let as_branch = GitSource {
             branches: vec![refname.to_string()],
             tags: Vec::new(),
