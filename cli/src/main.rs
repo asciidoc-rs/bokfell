@@ -15,8 +15,10 @@ use anyhow::{bail, Context};
 use bokfell_aggregate::{Aggregator, GitSource};
 use bokfell_coverage::{BlockStatus, CoverageData, CoverageScope, PageCoverage};
 use bokfell_model::{relative_url, ContentCatalog, Coords, Family, NavTree, Playbook, ResourceRef};
-use bokfell_render::{Pipeline, RenderedPage};
-use bokfell_theme::{coverage_level, escape_html, CoverageView, PageContext, Theme, VersionLink};
+use bokfell_render::{DiffBase, PageBlockChange, PageDiff, Pipeline, RenderedPage};
+use bokfell_theme::{
+    coverage_level, escape_html, CoverageView, DiffView, PageContext, Theme, VersionLink,
+};
 use clap::{Parser as ClapParser, Subcommand};
 
 #[derive(ClapParser)]
@@ -50,6 +52,12 @@ enum Command {
         /// Refresh cached remote repositories before building.
         #[arg(long)]
         fetch: bool,
+
+        /// Diff every page against this git ref of its source (PR
+        /// preview mode) instead of against the previous component
+        /// version.
+        #[arg(long, value_name = "REF")]
+        diff_base: Option<String>,
     },
 
     /// Build into memory and serve with file watching and live reload.
@@ -69,6 +77,12 @@ enum Command {
         /// Refresh cached remote repositories before the initial build.
         #[arg(long)]
         fetch: bool,
+
+        /// Diff every page against this git ref of its source (PR
+        /// preview mode) instead of against the previous component
+        /// version.
+        #[arg(long, value_name = "REF")]
+        diff_base: Option<String>,
     },
 }
 
@@ -79,13 +93,27 @@ fn main() -> anyhow::Result<()> {
             out,
             theme,
             fetch,
-        } => build(&playbook, out.as_deref(), theme.as_deref(), fetch),
+            diff_base,
+        } => build(
+            &playbook,
+            out.as_deref(),
+            theme.as_deref(),
+            fetch,
+            diff_base.as_deref(),
+        ),
         Command::Serve {
             playbook,
             theme,
             port,
             fetch,
-        } => serve(&playbook, theme.as_deref(), port, fetch),
+            diff_base,
+        } => serve(
+            &playbook,
+            theme.as_deref(),
+            port,
+            fetch,
+            diff_base.as_deref(),
+        ),
     }
 }
 
@@ -95,6 +123,9 @@ type SiteFiles = Vec<(String, Vec<u8>)>;
 /// The site-root-relative URL of the coverage dashboard page.
 const COVERAGE_DASHBOARD_URL: &str = "coverage.html";
 
+/// The site-root-relative URL of the what-changed index page.
+const CHANGES_INDEX_URL: &str = "whats-changed.html";
+
 /// Runs playbook → catalog → render → theme and returns every site file.
 ///
 /// Warnings are printed to stderr as they surface; the count is returned
@@ -103,6 +134,7 @@ fn compose_site(
     playbook_path: &Path,
     theme_dir: Option<&Path>,
     fetch: bool,
+    diff_base_ref: Option<&str>,
 ) -> anyhow::Result<SiteFiles> {
     let playbook = Playbook::load(playbook_path)?;
 
@@ -183,8 +215,25 @@ fn compose_site(
         bail!("no components found in the playbook's content sources");
     }
 
-    let pipeline =
-        Pipeline::new(catalog, playbook.asciidoc.attribute_seeds()).with_coverage(coverage_scopes);
+    // Page diffing (PLAN.md §9.1): PR-preview mode against a named ref,
+    // or (by default) each page against its previous component version.
+    let diff_base = match diff_base_ref {
+        Some(reference) => {
+            let base = base_catalog(&playbook, &aggregator, reference)?;
+            if base.components().is_empty() {
+                bail!("--diff-base {reference}: no content source could be aggregated at that ref");
+            }
+            DiffBase::Catalog {
+                pipeline: Box::new(Pipeline::new(base, playbook.asciidoc.attribute_seeds())),
+                label: reference.to_string(),
+            }
+        }
+        None => DiffBase::PreviousVersion,
+    };
+
+    let pipeline = Pipeline::new(catalog, playbook.asciidoc.attribute_seeds())
+        .with_coverage(coverage_scopes)
+        .with_diff(diff_base);
     let site = pipeline.render_site()?;
     let theme = Theme::load(theme_dir)?;
 
@@ -239,8 +288,41 @@ fn compose_site(
             home_url: "index.html",
             versions: &versions,
             coverage: page.coverage.as_ref().map(coverage_view),
+            diff: diff_view(page),
+            overlay_json: overlay_json(page),
         })?;
         files.push((page.url.clone(), html.into_bytes()));
+    }
+
+    // The what-changed index, when any page changed against its base.
+    let changed: Vec<&RenderedPage> = site
+        .pages
+        .iter()
+        .filter(|p| p.diff.as_ref().is_some_and(PageDiff::is_changed))
+        .collect();
+    if !changed.is_empty() {
+        if site.pages.iter().any(|p| p.url == CHANGES_INDEX_URL) {
+            eprintln!(
+                "warning: skipping the generated what-changed index: an authored page \
+                 already publishes at {CHANGES_INDEX_URL}"
+            );
+        } else {
+            let contents = changes_index(&changed);
+            let html = theme.compose_page(&PageContext {
+                site_title: &playbook.site.title,
+                url: CHANGES_INDEX_URL,
+                title_html: Some("What Changed"),
+                title_text: Some("What Changed"),
+                contents: &contents,
+                nav: &empty_nav,
+                home_url: "index.html",
+                versions: &[],
+                coverage: None,
+                diff: None,
+                overlay_json: None,
+            })?;
+            files.push((CHANGES_INDEX_URL.to_string(), html.into_bytes()));
+        }
     }
 
     // The site-wide coverage dashboard, when any page carries coverage.
@@ -267,6 +349,8 @@ fn compose_site(
             home_url: "index.html",
             versions: &[],
             coverage: None,
+            diff: None,
+            overlay_json: None,
         })?;
         files.push((COVERAGE_DASHBOARD_URL.to_string(), html.into_bytes()));
     }
@@ -297,13 +381,14 @@ fn build(
     out: Option<&Path>,
     theme_dir: Option<&Path>,
     fetch: bool,
+    diff_base: Option<&str>,
 ) -> anyhow::Result<()> {
     let playbook = Playbook::load(playbook_path)?;
     let out_dir = out
         .map(Path::to_path_buf)
         .unwrap_or_else(|| playbook.output_dir());
 
-    let files = compose_site(playbook_path, theme_dir, fetch)?;
+    let files = compose_site(playbook_path, theme_dir, fetch, diff_base)?;
     let count = files.len();
     for (url, bytes) in files {
         write_output(&out_dir, &url, &bytes)?;
@@ -321,6 +406,7 @@ fn serve(
     theme_dir: Option<&Path>,
     port: u16,
     fetch: bool,
+    diff_base: Option<&str>,
 ) -> anyhow::Result<()> {
     // Watch the playbook, every *local directory* content source, and the
     // theme directory (git sources are cache-backed and not watched).
@@ -340,12 +426,18 @@ fn serve(
 
     let playbook_path = playbook_path.to_path_buf();
     let theme_dir = theme_dir.map(Path::to_path_buf);
+    let diff_base = diff_base.map(str::to_string);
     let mut first = fetch;
     let builder: bokfell_serve::SiteBuilder = Box::new(move || {
         let fetch_now = std::mem::take(&mut first);
-        compose_site(&playbook_path, theme_dir.as_deref(), fetch_now)
-            .map(|files| files.into_iter().collect())
-            .map_err(|e| format!("{e:#}"))
+        compose_site(
+            &playbook_path,
+            theme_dir.as_deref(),
+            fetch_now,
+            diff_base.as_deref(),
+        )
+        .map(|files| files.into_iter().collect())
+        .map_err(|e| format!("{e:#}"))
     });
 
     let addr: SocketAddr = ([127, 0, 0, 1], port).into();
@@ -394,29 +486,184 @@ fn start_page_url(
         .context("site has no pages")
 }
 
-/// Builds one page's coverage presentation: the rollup numbers plus the
-/// client overlay payload (the block-pairing selector and per-block
-/// status tokens; `<` is escaped so the JSON embeds safely in a
-/// `<script>` element).
+/// Builds one page's coverage presentation (the rollup numbers for the
+/// badge).
 fn coverage_view(coverage: &PageCoverage) -> CoverageView {
-    let blocks: Vec<Option<&str>> = coverage
-        .blocks
-        .iter()
-        .map(|b| b.map(BlockStatus::css_token))
-        .collect();
-    let data_json = serde_json::json!({
-        "selector": bokfell_render::coverage_client_selector(),
-        "blocks": blocks,
-    })
-    .to_string()
-    .replace('<', "\\u003c");
-
     CoverageView {
         percent: coverage.percent_verified(),
         verified: coverage.verified,
         uncovered: coverage.uncovered,
-        data_json,
         dashboard_url: COVERAGE_DASHBOARD_URL.to_string(),
+    }
+}
+
+/// Builds one page's diff presentation, when the page changed against
+/// its base.
+fn diff_view(page: &RenderedPage) -> Option<DiffView> {
+    let diff = page.diff.as_ref().filter(|d| d.is_changed())?;
+    Some(DiffView {
+        base_label: diff.base_label.clone(),
+        new_page: diff.new_page,
+        added: diff.added,
+        removed: diff.removed,
+        edited: diff.edited,
+        changes_url: CHANGES_INDEX_URL.to_string(),
+    })
+}
+
+/// Builds the combined client overlay payload: the block-pairing
+/// selector plus per-block arrays for the overlays this page carries —
+/// coverage status tokens, and diff changes (`null` unchanged, `"added"`,
+/// or `["edited", word_diff_html]`). `<` is escaped so the JSON embeds
+/// safely in a `<script>` element.
+fn overlay_json(page: &RenderedPage) -> Option<String> {
+    let coverage = page.coverage.as_ref().map(|cov| {
+        serde_json::json!(cov
+            .blocks
+            .iter()
+            .map(|b| b.map(BlockStatus::css_token))
+            .collect::<Vec<_>>())
+    });
+    let diff = page.diff.as_ref().filter(|d| d.is_changed()).map(|d| {
+        serde_json::json!(d
+            .blocks
+            .iter()
+            .map(|change| match change {
+                PageBlockChange::Unchanged => serde_json::Value::Null,
+                PageBlockChange::Added => serde_json::json!("added"),
+                PageBlockChange::Edited { diff_html } => serde_json::json!(["edited", diff_html]),
+            })
+            .collect::<Vec<_>>())
+    });
+    if coverage.is_none() && diff.is_none() {
+        return None;
+    }
+
+    let mut payload = serde_json::Map::new();
+    payload.insert(
+        "selector".to_string(),
+        serde_json::json!(bokfell_render::overlay_client_selector()),
+    );
+    if let Some(coverage) = coverage {
+        payload.insert("coverage".to_string(), coverage);
+    }
+    if let Some(diff) = diff {
+        payload.insert("diff".to_string(), diff);
+    }
+    Some(
+        serde_json::Value::Object(payload)
+            .to_string()
+            .replace('<', "\\u003c"),
+    )
+}
+
+/// Builds the what-changed index page body: every changed page with its
+/// base and change counts.
+fn changes_index(changed: &[&RenderedPage]) -> String {
+    let mut out = String::from(
+        "<div class=\"changes-index\">\n\
+         <p>Pages that differ from their comparison base (the previous \
+         component version, or the base ref in PR-preview mode).</p>\n\
+         <table>\n<thead><tr><th>Page</th><th>Compared to</th>\
+         <th>Added</th><th>Edited</th><th>Removed</th></tr></thead>\n<tbody>\n",
+    );
+    for page in changed {
+        let diff = page.diff.as_ref().expect("filtered to changed pages");
+        let label = page.title_text.as_deref().unwrap_or(&page.url);
+        let counts = if diff.new_page {
+            "<td colspan=\"3\"><span class=\"new-page\">new page</span></td>".to_string()
+        } else {
+            format!(
+                "<td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td>",
+                diff.added, diff.edited, diff.removed
+            )
+        };
+        out.push_str(&format!(
+            "<tr><td><a href=\"{href}\">{label}</a> \
+             <span class=\"page-url\">{url}</span></td>\
+             <td>{base}</td>{counts}</tr>\n",
+            href = escape_html(&relative_url(CHANGES_INDEX_URL, &page.url)),
+            label = escape_html(label),
+            url = escape_html(&page.url),
+            base = escape_html(&diff.base_label),
+        ));
+    }
+    out.push_str("</tbody>\n</table>\n</div>\n");
+    out
+}
+
+/// Builds the base catalog for PR-preview mode: every content source
+/// re-aggregated at `base_ref`. Git sources aggregate that ref directly;
+/// a directory source is looked up in its enclosing git repository (and
+/// skipped with a warning when it has none).
+fn base_catalog(
+    playbook: &Playbook,
+    aggregator: &bokfell_aggregate::Aggregator,
+    base_ref: &str,
+) -> anyhow::Result<ContentCatalog> {
+    let mut catalog = ContentCatalog::new();
+    for source in &playbook.content.sources {
+        let git_source = if let Some(path) = &source.path {
+            let root = playbook.resolve_path(path);
+            let Some((repo_root, start_path)) = enclosing_repo(&root) else {
+                eprintln!(
+                    "warning: --diff-base: skipping content source {} \
+                     (not inside a git repository)",
+                    root.display()
+                );
+                continue;
+            };
+            GitSource {
+                url: repo_root.display().to_string(),
+                branches: vec![base_ref.to_string()],
+                tags: vec![base_ref.to_string()],
+                start_path,
+                version_from_ref: false,
+            }
+        } else {
+            let url = source.url.clone().expect("validated: url set");
+            let as_path = Path::new(&url);
+            let url =
+                if as_path.is_relative() && playbook.resolve_path(as_path).join(".git").exists() {
+                    playbook.resolve_path(as_path).display().to_string()
+                } else {
+                    url
+                };
+            GitSource {
+                url,
+                branches: vec![base_ref.to_string()],
+                tags: vec![base_ref.to_string()],
+                start_path: source.start_path.clone(),
+                version_from_ref: false,
+            }
+        };
+
+        for root in aggregator.collect(&git_source)? {
+            catalog
+                .scan_source_versioned(&root.path, root.version_override.as_deref())
+                .with_context(|| {
+                    format!("scanning diff base {base_ref} ({})", root.path.display())
+                })?;
+        }
+    }
+    Ok(catalog)
+}
+
+/// Finds the git repository containing `path`: the repository root and
+/// `path` relative to it (as a start path).
+fn enclosing_repo(path: &Path) -> Option<(PathBuf, String)> {
+    let canonical = path.canonicalize().ok()?;
+    let mut dir = canonical.as_path();
+    loop {
+        if dir.join(".git").exists() {
+            let start_path = canonical
+                .strip_prefix(dir)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            return Some((dir.to_path_buf(), start_path));
+        }
+        dir = dir.parent()?;
     }
 }
 

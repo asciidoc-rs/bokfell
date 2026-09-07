@@ -37,7 +37,12 @@ version selector. Spec-coverage overlays work end to end: per-line
 coverage JSON (from a tool like asciidoc-rs's `sdd`) becomes a
 verified-percentage badge on each covered page, a click-to-toggle
 per-block shading overlay, and a site-wide `/coverage.html` dashboard.
-Diffs and click-to-source editing are still to come — see
+Diff views work end to end too: each versioned page diffs against its
+previous version (or against a git ref with `--diff-base`, previewing a
+working tree or PR branch), changed pages get a "Changed since X" badge
+that highlights added/edited blocks — click an edited block for its
+word-level diff — and a site-wide `whats-changed.html` lists what
+changed. Click-to-source editing is still to come — see
 [`PLAN.md`](PLAN.md) for the architecture
 and milestone roadmap, and [`CLAUDE.md`](CLAUDE.md) for contributor
 conventions (including important license boundaries around code borrowed
@@ -57,7 +62,10 @@ cargo run --bin bokfell -- serve     # http://127.0.0.1:8000/, live reload
 Edit anything under `examples/hello-bokfell/docs/` while `serve` runs and
 the browser reloads with the change. The home page also demos the
 spec-coverage overlay: click its "60% verified" badge to shade each block
-by verification status.
+by verification status. And after editing a page, rebuild with
+`cargo run --bin bokfell -- build --diff-base main` — every page you
+changed gets a "Changed since main" badge that highlights exactly what
+you added or edited.
 
 ## Building a site
 

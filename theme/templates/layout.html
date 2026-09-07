@@ -17,11 +17,20 @@
 {{ nav_html | safe }}
   </nav>
   <main class="doc">
-{% if coverage %}    <div class="coverage-badge cov-{{ coverage.level }}">
-      <button id="bokfell-cov-toggle" type="button" aria-pressed="false"
-        title="{{ coverage.verified }} verified and {{ coverage.uncovered }} uncovered normative lines. Click to shade blocks by status.">{{ coverage.percent }}% verified</button>
-      <a href="{{ coverage.dashboard_href | safe }}">all pages</a>
-    </div>
+{% if coverage or diff %}    <div class="page-overlays">
+{% if diff %}      <div class="overlay-badge diff-badge">
+{% if diff.new_page %}        <button id="bokfell-diff-toggle" type="button" aria-pressed="false"
+          title="This page does not exist in {{ diff.base_label }}. Click to highlight its blocks.">New since {{ diff.base_label }}</button>
+{% else %}        <button id="bokfell-diff-toggle" type="button" aria-pressed="false"
+          title="{{ diff.added }} added, {{ diff.edited }} edited, {{ diff.removed }} removed blocks vs {{ diff.base_label }}. Click to highlight changes; click an edited block for its word diff.">Changed since {{ diff.base_label }}</button>
+{% endif %}        <a href="{{ diff.changes_href | safe }}">what changed</a>
+      </div>
+{% endif %}{% if coverage %}      <div class="overlay-badge coverage-badge cov-{{ coverage.level }}">
+        <button id="bokfell-cov-toggle" type="button" aria-pressed="false"
+          title="{{ coverage.verified }} verified and {{ coverage.uncovered }} uncovered normative lines. Click to shade blocks by status.">{{ coverage.percent }}% verified</button>
+        <a href="{{ coverage.dashboard_href | safe }}">all pages</a>
+      </div>
+{% endif %}    </div>
 {% endif %}    <article>
 {% if page.title_html %}      <h1 class="page-title">{{ page.title_html | safe }}</h1>
 {% endif %}{{ page.contents | safe }}
@@ -31,7 +40,7 @@
 <footer class="site-footer">
   <p>Built with <a href="https://github.com/asciidoc-rs/bokfell">Bokfell</a>.</p>
 </footer>
-{% if coverage %}<script type="application/json" id="bokfell-cov-data">{{ coverage.data_json | safe }}</script>
-<script src="{{ coverage.script_href | safe }}" defer></script>
+{% if overlay_json %}<script type="application/json" id="bokfell-overlay-data">{{ overlay_json | safe }}</script>
+<script src="{{ overlay_script_href | safe }}" defer></script>
 {% endif %}</body>
 </html>

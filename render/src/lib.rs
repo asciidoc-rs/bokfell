@@ -26,8 +26,9 @@ use asciidoc_parser::{
     parser::{HtmlInlineRenderer, ModificationContext},
     Parser, SafeMode,
 };
-pub use blockmap::client_selector as coverage_client_selector;
+pub use blockmap::client_selector as overlay_client_selector;
 use bokfell_coverage::{CoverageScope, PageCoverage};
+use bokfell_diff::{diff_blocks, BlockChange};
 use bokfell_model::{
     relative_url, Component, ContentCatalog, Coords, Family, NavTree, VirtualFile,
 };
@@ -68,6 +69,67 @@ pub struct RenderedPage {
     /// Spec coverage of this page, when coverage data was supplied and
     /// covers it (PLAN.md §9.2).
     pub coverage: Option<PageCoverage>,
+    /// What changed on this page relative to its diff base, when diffing
+    /// was configured and a base exists (PLAN.md §9.1).
+    pub diff: Option<PageDiff>,
+}
+
+/// One page's changes relative to its diff base (the previous component
+/// version, or the base catalog in PR-preview mode).
+#[derive(Clone, Debug)]
+pub struct PageDiff {
+    /// What the page was compared against (a version label, or the base
+    /// ref name in PR mode).
+    pub base_label: String,
+    /// The page does not exist in the base at all.
+    pub new_page: bool,
+    /// Count of added blocks.
+    pub added: usize,
+    /// Count of removed blocks (present in the base only).
+    pub removed: usize,
+    /// Count of edited blocks.
+    pub edited: usize,
+    /// Per-block changes in document order (the overlay-block walk of the
+    /// *new* document).
+    pub blocks: Vec<PageBlockChange>,
+}
+
+impl PageDiff {
+    /// Whether anything changed relative to the base.
+    pub fn is_changed(&self) -> bool {
+        self.new_page || self.added + self.removed + self.edited > 0
+    }
+}
+
+/// One rendered block's change relative to the diff base.
+#[derive(Clone, Debug)]
+pub enum PageBlockChange {
+    /// Identical in the base.
+    Unchanged,
+    /// Not present in the base.
+    Added,
+    /// Present in the base with different content.
+    Edited {
+        /// The block's source with word-level `<del>`/`<ins>` markers
+        /// (HTML-escaped).
+        diff_html: String,
+    },
+}
+
+/// What pages are diffed against (PLAN.md §9.1).
+pub enum DiffBase {
+    /// Each versioned page diffs against the previous version of its
+    /// component (Antora version order); the oldest version has no diff.
+    PreviousVersion,
+    /// Every page diffs against the page with the same coordinates in a
+    /// separate base catalog — PR preview mode (base ref vs head).
+    Catalog {
+        /// A pipeline over the base content (typically the same sources
+        /// aggregated at the base ref).
+        pipeline: Box<Pipeline>,
+        /// The label pages report as their base (e.g. the base ref name).
+        label: String,
+    },
 }
 
 /// The result of rendering a whole site.
@@ -85,6 +147,7 @@ pub struct Pipeline {
     catalog: Arc<ContentCatalog>,
     site_attrs: Vec<(String, Option<String>)>,
     coverage: Vec<CoverageScope>,
+    diff_base: Option<DiffBase>,
 }
 
 struct ParsedPage {
@@ -107,7 +170,15 @@ impl Pipeline {
             catalog: Arc::new(catalog),
             site_attrs,
             coverage: Vec::new(),
+            diff_base: None,
         }
+    }
+
+    /// Configures page diffing (PLAN.md §9.1). Pages with a base get a
+    /// [`PageDiff`] on their [`RenderedPage`].
+    pub fn with_diff(mut self, base: DiffBase) -> Self {
+        self.diff_base = Some(base);
+        self
     }
 
     /// Supplies spec-coverage data (PLAN.md §9.2), one scope per content
@@ -141,10 +212,20 @@ impl Pipeline {
             );
         }
 
+        // Phase 2b': page diffs against the configured base, computed
+        // while every parsed document is still immutable (PLAN.md §9.1).
+        let mut diffs: Vec<Option<PageDiff>> = match &self.diff_base {
+            None => vec![None; parsed.len()],
+            Some(base) => parsed
+                .iter()
+                .map(|page| self.page_diff(page, &parsed, base))
+                .collect(),
+        };
+
         // Phase 2b + 3: resolve each page against the site and render it.
         let render_options = asciidoc_html5::Options::new().embedded(true);
         let mut pages = Vec::new();
-        for page in &mut parsed {
+        for (page_index, page) in parsed.iter_mut().enumerate() {
             let own = index
                 .get(&page.coords)
                 .expect("every parsed page was indexed");
@@ -170,6 +251,7 @@ impl Pipeline {
                 contents,
                 warnings: std::mem::take(&mut page.warnings),
                 coverage,
+                diff: diffs[page_index].take(),
             });
         }
 
@@ -363,6 +445,110 @@ impl Pipeline {
             .collect();
 
         Some(PageCoverage::from_lines(lines, &spans))
+    }
+
+    /// Computes one page's diff against the configured base: the base
+    /// document's overlay units vs this page's, classified block by
+    /// block. `None` when the page has no base (oldest version, or no
+    /// diffing possible).
+    fn page_diff(
+        &self,
+        page: &ParsedPage,
+        parsed: &[ParsedPage],
+        base: &DiffBase,
+    ) -> Option<PageDiff> {
+        let new_units = blockmap::overlay_units(&page.document);
+
+        let (base_units, base_label) = match base {
+            DiffBase::PreviousVersion => {
+                let versions = self.catalog.versions_of(&page.coords.component);
+                let position = versions
+                    .iter()
+                    .position(|c| c.desc.version == page.coords.version)?;
+                let previous = versions.get(position + 1)?;
+                let label = previous
+                    .desc
+                    .display_version
+                    .clone()
+                    .or_else(|| previous.desc.version.clone())
+                    .unwrap_or_else(|| "default".to_string());
+
+                let base_coords = Coords {
+                    version: previous.desc.version.clone(),
+                    ..page.coords.clone()
+                };
+                let base_page = parsed.iter().find(|p| p.coords == base_coords);
+                (
+                    base_page.map(|p| blockmap::overlay_units(&p.document)),
+                    label,
+                )
+            }
+            DiffBase::Catalog { pipeline, label } => {
+                // Match by resource coordinates; the version must agree
+                // when the base catalog carries several versions.
+                let candidates: Vec<&VirtualFile> = pipeline
+                    .catalog
+                    .files_of(Family::Page)
+                    .filter(|f| {
+                        f.coords.component == page.coords.component
+                            && f.coords.module == page.coords.module
+                            && f.coords.path == page.coords.path
+                    })
+                    .collect();
+                let file = candidates
+                    .iter()
+                    .find(|f| f.coords.version == page.coords.version)
+                    .or_else(|| (candidates.len() == 1).then(|| &candidates[0]))
+                    .copied();
+
+                let units = file.and_then(|file| {
+                    // A base page that fails to parse simply yields no
+                    // diff for this page.
+                    let base_page = pipeline.parse_page(file).ok()?;
+                    Some(blockmap::overlay_units(&base_page.document))
+                });
+                (units, label.clone())
+            }
+        };
+
+        match base_units {
+            None => {
+                // The page is new relative to the base: every block is an
+                // addition.
+                let added = new_units.len();
+                Some(PageDiff {
+                    base_label,
+                    new_page: true,
+                    added,
+                    removed: 0,
+                    edited: 0,
+                    blocks: vec![PageBlockChange::Added; added],
+                })
+            }
+            Some(base_units) => {
+                let diff = diff_blocks(&base_units, &new_units);
+                let mut blocks = vec![PageBlockChange::Unchanged; new_units.len()];
+                for change in &diff.changes {
+                    match change {
+                        BlockChange::Added { new } => blocks[*new] = PageBlockChange::Added,
+                        BlockChange::Edited { new, diff_html, .. } => {
+                            blocks[*new] = PageBlockChange::Edited {
+                                diff_html: diff_html.clone(),
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Some(PageDiff {
+                    base_label,
+                    new_page: false,
+                    added: diff.added,
+                    removed: diff.removed,
+                    edited: diff.edited,
+                    blocks,
+                })
+            }
+        }
     }
 
     fn component_of(&self, coords: &Coords) -> Result<&Component, RenderError> {

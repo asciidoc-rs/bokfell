@@ -311,23 +311,31 @@ a:hover { text-decoration: underline; }
    renderer development. */
 .doc .unsupported { color: var(--bf-important); }
 
-/* Spec-coverage overlay (PLAN.md §9.2): the badge/toggle on covered
-   pages, per-block shading while the body carries .coverage-overlay,
-   and the site-wide dashboard table. */
-.coverage-badge {
+/* Page overlays: the spec-coverage badge (PLAN.md §9.2) and the diff
+   badge (PLAN.md §9.1), per-block shading while the body carries
+   .coverage-overlay / .diff-overlay, and the generated index pages. */
+.page-overlays {
   float: right;
   display: flex;
-  gap: 0.6rem;
+  gap: 1.2rem;
   align-items: baseline;
   font-size: 0.8rem;
   margin: 1.5rem 2rem 0 1rem;
+}
+
+.overlay-badge {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
 }
 
 .cov-high { --bf-cov: #2f9e44; }
 .cov-mid { --bf-cov: #cd8b12; }
 .cov-low { --bf-cov: #e03131; }
 
-.coverage-badge button {
+.diff-badge { --bf-cov: var(--bf-accent); }
+
+.overlay-badge button {
   font: inherit;
   font-weight: 600;
   border: 1px solid var(--bf-cov, var(--bf-border));
@@ -338,12 +346,12 @@ a:hover { text-decoration: underline; }
   color: var(--bf-cov, inherit);
 }
 
-.coverage-badge button[disabled] {
+.overlay-badge button[disabled] {
   cursor: default;
   opacity: 0.6;
 }
 
-.coverage-badge a { color: var(--bf-muted); }
+.overlay-badge a { color: var(--bf-muted); }
 
 span.cov-high, span.cov-mid, span.cov-low {
   color: var(--bf-cov);
@@ -365,6 +373,63 @@ span.cov-high, span.cov-mid, span.cov-low {
 .coverage-overlay .doc [data-coverage="uncovered"] {
   background: rgba(224, 49, 49, 0.1);
   box-shadow: inset 3px 0 0 #e03131;
+}
+
+.diff-overlay .doc [data-diff] { border-radius: 3px; }
+
+.diff-overlay .doc [data-diff="added"] {
+  background: rgba(25, 113, 194, 0.12);
+  box-shadow: inset 3px 0 0 #1971c2;
+}
+
+.diff-overlay .doc [data-diff="edited"] {
+  background: rgba(156, 54, 181, 0.1);
+  box-shadow: inset 3px 0 0 #9c36b5;
+}
+
+.diff-overlay .doc [data-diff].has-diff-detail { cursor: pointer; }
+
+.doc .bokfell-diff-detail {
+  border: 1px dashed #9c36b5;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  white-space: pre-wrap;
+  font-size: 0.85em;
+}
+
+.doc .bokfell-diff-detail del {
+  background: rgba(224, 49, 49, 0.2);
+  text-decoration: line-through;
+}
+
+.doc .bokfell-diff-detail ins {
+  background: rgba(47, 158, 68, 0.25);
+  text-decoration: none;
+}
+
+.changes-index table {
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.changes-index th,
+.changes-index td {
+  border: 1px solid var(--bf-border);
+  padding: 0.4rem 0.8rem;
+  text-align: left;
+}
+
+.changes-index td.num { text-align: right; }
+
+.changes-index .page-url {
+  color: var(--bf-muted);
+  font-size: 0.8em;
+  margin-left: 0.4rem;
+}
+
+.changes-index .new-page {
+  color: #1971c2;
+  font-weight: 600;
 }
 
 .coverage-dashboard table {
