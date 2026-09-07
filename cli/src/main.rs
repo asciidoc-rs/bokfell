@@ -379,6 +379,23 @@ fn compose_site(
         }
     }
 
+    // The static search index (PLAN.md §12): one entry per page.
+    let entries: Vec<bokfell_search::SearchEntry> = site
+        .pages
+        .iter()
+        .map(|page| {
+            bokfell_search::SearchEntry::from_html(
+                page.title_text.as_deref().unwrap_or(&page.url),
+                &page.url,
+                &page.contents,
+            )
+        })
+        .collect();
+    files.push((
+        "_/search-index.json".to_string(),
+        bokfell_search::index_json(&entries).into_bytes(),
+    ));
+
     // Theme assets and the root redirect.
     files.extend(theme.assets());
     files.push((

@@ -50,6 +50,9 @@ a:hover { text-decoration: underline; }
 /* ── Chrome ─────────────────────────────────────────────────────────── */
 
 .site-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
   padding: 0.6rem 1.25rem;
   border-bottom: 1px solid var(--bf-border);
   background: var(--bf-nav-bg);
@@ -310,6 +313,71 @@ a:hover { text-decoration: underline; }
 /* Verbatim unsupported-construct markers stay visible during early
    renderer development. */
 .doc .unsupported { color: var(--bf-important); }
+
+/* Site search (PLAN.md §12): the header box and its results dropdown. */
+.site-search {
+  position: relative;
+  margin-left: auto;
+}
+
+.site-search input {
+  font: inherit;
+  font-size: 0.85rem;
+  border: 1px solid var(--bf-border);
+  border-radius: 6px;
+  background: var(--bf-bg);
+  color: var(--bf-fg);
+  padding: 0.3rem 0.6rem;
+  width: 14rem;
+}
+
+.site-search input:focus {
+  outline: none;
+  border-color: var(--bf-accent);
+}
+
+#bokfell-search-results {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  width: 26rem;
+  max-width: 80vw;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bf-bg);
+  border: 1px solid var(--bf-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+#bokfell-search-results a {
+  display: block;
+  padding: 0.5rem 0.8rem;
+  text-decoration: none;
+  color: var(--bf-fg);
+  border-bottom: 1px solid var(--bf-border);
+}
+
+#bokfell-search-results a:last-child { border-bottom: none; }
+
+#bokfell-search-results a:hover { background: var(--bf-nav-bg); }
+
+#bokfell-search-results strong {
+  display: block;
+  color: var(--bf-accent);
+  margin-bottom: 0.15rem;
+}
+
+#bokfell-search-results span {
+  font-size: 0.8rem;
+  color: var(--bf-muted);
+}
+
+#bokfell-search-results .no-results {
+  display: block;
+  padding: 0.5rem 0.8rem;
+}
 
 /* Page overlays: the spec-coverage badge (PLAN.md §9.2) and the diff
    badge (PLAN.md §9.1), per-block shading while the body carries

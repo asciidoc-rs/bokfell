@@ -10,6 +10,11 @@
 <body>
 <header class="site-header">
   <a class="site-title" href="{{ home_href | safe }}">{{ site.title }}</a>
+  <div class="site-search">
+    <input id="bokfell-search" type="search" placeholder="Search…" autocomplete="off"
+      aria-label="Search this site">
+    <div id="bokfell-search-results" hidden></div>
+  </div>
 </header>
 <div class="site-body">
   <nav class="site-nav" aria-label="Site">
@@ -42,5 +47,6 @@
 </footer>
 {% if overlay_json %}<script type="application/json" id="bokfell-overlay-data">{{ overlay_json | safe }}</script>
 <script src="{{ overlay_script_href | safe }}" defer></script>
-{% endif %}</body>
+{% endif %}<script src="{{ search_script_href | safe }}" defer></script>
+</body>
 </html>
