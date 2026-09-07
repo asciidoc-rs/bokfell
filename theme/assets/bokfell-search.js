@@ -57,10 +57,15 @@
     return (from > 0 ? "…" : "") + text.slice(from, at + 90) + "…";
   }
 
+  function setExpanded(open) {
+    results.hidden = !open;
+    input.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
   function run() {
     var query = input.value.trim().toLowerCase();
     if (!query) {
-      results.hidden = true;
+      setExpanded(false);
       results.textContent = "";
       return;
     }
@@ -97,7 +102,7 @@
       none.textContent = "No matches";
       results.appendChild(none);
     }
-    results.hidden = false;
+    setExpanded(true);
   }
 
   input.addEventListener("input", run);
@@ -107,13 +112,13 @@
   });
   input.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape") {
-      results.hidden = true;
+      setExpanded(false);
       input.blur();
     }
   });
   document.addEventListener("click", function (ev) {
     if (ev.target !== input && !results.contains(ev.target)) {
-      results.hidden = true;
+      setExpanded(false);
     }
   });
 })();

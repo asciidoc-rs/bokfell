@@ -10,10 +10,11 @@
 <body>
 <header class="site-header">
   <a class="site-title" href="{{ home_href | safe }}">{{ site.title }}</a>
-  <div class="site-search">
+  <div class="site-search" role="search">
     <input id="bokfell-search" type="search" placeholder="Search…" autocomplete="off"
-      aria-label="Search this site">
-    <div id="bokfell-search-results" hidden></div>
+      aria-label="Search this site" role="combobox" aria-expanded="false"
+      aria-controls="bokfell-search-results" aria-autocomplete="list">
+    <div id="bokfell-search-results" aria-live="polite" hidden></div>
   </div>
 </header>
 <div class="site-body">

@@ -48,42 +48,51 @@ pub fn index_json(entries: &[SearchEntry]) -> String {
 pub fn html_to_text(html: &str) -> String {
     let mut out = String::with_capacity(html.len() / 2);
     let mut rest = html;
-    let mut skip_until: Option<&str> = None;
 
     while let Some(start) = rest.find('<') {
-        if skip_until.is_none() {
-            push_text(&mut out, &rest[..start]);
-        }
+        push_text(&mut out, &rest[..start]);
         let tag_rest = &rest[start + 1..];
         let Some(end) = tag_rest.find('>') else {
             break;
         };
         let tag = &tag_rest[..end];
+        rest = &tag_rest[end + 1..];
 
-        match skip_until {
-            Some(closer) => {
-                if tag.trim().eq_ignore_ascii_case(closer) {
-                    skip_until = None;
+        // Raw-text elements: their content is not markup (a `<` inside a
+        // script is code, not a tag — e.g. `if (a < b)` from a
+        // passthrough block), so scan straight for the closing tag
+        // instead of tokenizing tag by tag, and drop everything before
+        // it. An unterminated element swallows the remainder, matching
+        // browser behavior.
+        let name = tag
+            .split(|c: char| c.is_whitespace() || c == '/' || c == '>')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if name == "script" || name == "style" {
+            let closer = if name == "script" {
+                "</script"
+            } else {
+                "</style"
+            };
+            let lower = rest.to_ascii_lowercase();
+            match lower.find(closer) {
+                Some(close_at) => {
+                    let after = &rest[close_at..];
+                    match after.find('>') {
+                        Some(gt) => rest = &after[gt + 1..],
+                        None => {
+                            rest = "";
+                        }
+                    }
                 }
-            }
-            None => {
-                let name = tag
-                    .split(|c: char| c.is_whitespace() || c == '/' || c == '>')
-                    .next()
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
-                if name == "script" {
-                    skip_until = Some("/script");
-                } else if name == "style" {
-                    skip_until = Some("/style");
+                None => {
+                    rest = "";
                 }
             }
         }
-        rest = &tag_rest[end + 1..];
     }
-    if skip_until.is_none() {
-        push_text(&mut out, rest);
-    }
+    push_text(&mut out, rest);
 
     out.trim().to_string()
 }
@@ -167,6 +176,25 @@ mod tests {
              <style>.x{color:red}</style><p>After.</p>",
         );
         assert_eq!(text, "Before. After.");
+    }
+
+    #[test]
+    fn script_content_with_comparisons_never_swallows_following_text() {
+        // A `<` inside script code is not a tag; the text after the
+        // script must survive.
+        let text =
+            html_to_text("<p>Before.</p><script>if (a < b) run(x > y);</script><p>After.</p>");
+        assert_eq!(text, "Before. After.");
+
+        // Case-insensitive closer, attributes on the opener.
+        let text =
+            html_to_text("<p>A.</p><SCRIPT type=\"text/javascript\">1 < 2</SCRIPT><p>B.</p>");
+        assert_eq!(text, "A. B.");
+
+        // An unterminated script swallows the rest (browser behavior),
+        // never emitting code as searchable text.
+        let text = html_to_text("<p>A.</p><script>1 < 2");
+        assert_eq!(text, "A.");
     }
 
     #[test]
