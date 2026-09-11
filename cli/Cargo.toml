@@ -5,10 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+keywords = ["asciidoc", "documentation", "static-site", "antora", "generator"]
+categories = ["command-line-utilities"]
 version.workspace = true
-
-# Not ready for crates.io; flipped deliberately when 0.1 ships.
-publish = false
 
 [dependencies]
 anyhow = "1"
