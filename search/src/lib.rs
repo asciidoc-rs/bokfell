@@ -87,6 +87,17 @@ fn split_sections(html: &str) -> Vec<Section> {
     while let Some(lt) = html[pos..].find('<') {
         let tag_start = pos + lt;
         let tag_rest = &html[tag_start + 1..];
+
+        // A comment is opaque: heading-shaped markup inside it is not
+        // live HTML, and its content may hold `>` — skip to `-->`.
+        if let Some(comment) = tag_rest.strip_prefix("!--") {
+            pos = match comment.find("-->") {
+                Some(end) => tag_start + 4 + end + 3,
+                None => html.len(),
+            };
+            continue;
+        }
+
         let Some(gt) = tag_rest.find('>') else {
             break;
         };
@@ -196,6 +207,23 @@ pub fn html_to_text(html: &str) -> String {
     while let Some(start) = rest.find('<') {
         push_text(&mut out, &rest[..start]);
         let tag_rest = &rest[start + 1..];
+
+        // Comments are invisible, and their content may hold `<` or `>`
+        // (e.g. the renderer's `<!-- unsupported … -->` markers) — drop
+        // everything through `-->` instead of tokenizing inside.
+        if let Some(comment) = tag_rest.strip_prefix("!--") {
+            match comment.find("-->") {
+                Some(end) => {
+                    rest = &comment[end + 3..];
+                    continue;
+                }
+                None => {
+                    rest = "";
+                    break;
+                }
+            }
+        }
+
         let Some(end) = tag_rest.find('>') else {
             break;
         };
@@ -463,6 +491,37 @@ mod tests {
         let entries = page_entries("P", "p.html", "<h2 data-id=\"_x\">No anchor</h2><p>A.</p>");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].text, "No anchor A.");
+    }
+
+    #[test]
+    fn commented_out_heading_never_splits() {
+        // A heading inside an HTML comment is not live markup; it must
+        // create no anchored entry, and the surrounding text must stay
+        // in the right entries.
+        let entries = page_entries(
+            "P",
+            "p.html",
+            "<p>Lead.</p><!-- <h2 id=\"_ghost\">Ghost</h2> -->\
+             <h2 id=\"_real\">Real</h2><p>Body.</p>\
+             <!-- unsupported block: a > b --><p>Tail.</p>",
+        );
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].text, "Lead.");
+        assert_eq!(entries[1].url, "p.html#_real");
+        assert_eq!(entries[1].text, "Body. Tail.");
+    }
+
+    #[test]
+    fn comment_content_never_reaches_the_text() {
+        // Comment content is invisible, even when it holds `<` or `>`
+        // that would desync a naive tag scan.
+        let text = html_to_text("<p>A.</p><!-- if a > b then <x> --><p>B.</p>");
+        assert_eq!(text, "A. B.");
+
+        // An unterminated comment swallows the rest, matching the
+        // raw-text elements' behavior.
+        let text = html_to_text("<p>A.</p><!-- open");
+        assert_eq!(text, "A.");
     }
 
     #[test]
