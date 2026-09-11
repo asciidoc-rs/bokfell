@@ -553,10 +553,12 @@ Ordered to dogfood early and keep every milestone shippable:
   (`docs/THEMING.md`), crates.io publish readiness (publish flags
   flipped, keywords/categories, `RELEASING.md` with the dependency-order
   publish sequence), and a tag-triggered release workflow building
-  `bokfell` binaries for Linux/macOS/Windows with checksums. Still inside
-  M7's umbrella: section-level search entries with anchors, and the
-  actual `cargo publish` run (a maintainer act needing a crates.io
-  token).*
+  `bokfell` binaries for Linux/macOS/Windows with checksums.
+  Section-level search entries done (2026-09-11): each page indexes a
+  lead entry plus one anchored entry per section heading, so results
+  land on the matching section; section results show their parent page
+  for context. Still inside M7's umbrella: the actual `cargo publish`
+  run (a maintainer act needing a crates.io token).*
 
 Coverage (M4) deliberately precedes diff (M5): its data pipeline is simpler,
 the `sdd` seed exists, and it exercises the source-map plumbing diff also
