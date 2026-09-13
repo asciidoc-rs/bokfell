@@ -1,0 +1,21 @@
+= Bokfell
+
+Bokfell is a documentation site generator for AsciiDoc: a single static
+binary that aggregates content from one or more git repositories,
+organizes it into versioned components (Antora's content model), and
+publishes a cross-linked static site -- plus version/PR diffs,
+spec-coverage overlays, and live preview/editing.
+
+This site is Bokfell's own documentation, built by Bokfell from the
+`docs/` component of its repository. It is also the first site the
+spec-coverage engine measures: xref:rfcs:0001-spec-coverage.adoc[RFC 0001]
+describes that engine, and the RFC page carries a live coverage badge
+showing which of its own rules the engine's test suite claims.
+
+== Where to look
+
+* The design plan and milestone log live in `PLAN.md` at the repository
+  root.
+* `docs/MIGRATING-FROM-ANTORA.md` maps an Antora playbook onto
+  Bokfell's.
+* `docs/THEMING.md` explains theme-directory overrides.

@@ -114,6 +114,9 @@ pub struct CollectedRoot {
     pub version_override: Option<String>,
     /// The ref this root came from (for messages).
     pub refname: String,
+    /// The commit the ref resolved to (hex object id) — the revision
+    /// provenance records point at.
+    pub commit: String,
 }
 
 /// The aggregator: owns the cache location and fetch policy.
@@ -200,6 +203,7 @@ impl Aggregator {
                 path,
                 version_override,
                 refname,
+                commit: commit_id.to_string(),
             });
         }
         Ok(roots)
@@ -338,6 +342,42 @@ impl Aggregator {
         }
         unreachable!("the retry loop returns on every path");
     }
+}
+
+/// What a local directory's enclosing git repository says about it:
+/// provenance for content read straight from a worktree.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LocalRepoInfo {
+    /// The repository's root (the directory holding `.git`).
+    pub root: PathBuf,
+    /// The default fetch remote's URL, when configured.
+    pub remote_url: Option<String>,
+    /// The commit `HEAD` points at (hex object id), when any.
+    pub head: Option<String>,
+}
+
+/// Discovers the git repository enclosing `path` (the directory itself
+/// or any ancestor); `None` when there is none.
+pub fn local_repo_info(path: &Path) -> Option<LocalRepoInfo> {
+    let repo = gix::discover(path).ok()?;
+    let root = repo
+        .workdir()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| repo.git_dir().to_path_buf());
+    let remote_url = repo
+        .find_default_remote(gix::remote::Direction::Fetch)
+        .and_then(|remote| remote.ok())
+        .and_then(|remote| {
+            remote
+                .url(gix::remote::Direction::Fetch)
+                .map(|url| url.to_bstring().to_string())
+        });
+    let head = repo.head_id().ok().map(|id| id.to_string());
+    Some(LocalRepoInfo {
+        root,
+        remote_url,
+        head,
+    })
 }
 
 /// Enumerates the refs matching the source's patterns as

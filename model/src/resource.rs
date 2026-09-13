@@ -2,9 +2,12 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// The family (kind) of a resource within a module, mirroring Antora's
 /// family directories.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Family {
     /// `pages/` — AsciiDoc sources published as site pages.
     Page,

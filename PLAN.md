@@ -210,8 +210,10 @@ bokfell-theme/      minijinja templating, built-in default theme, theme-dir
 bokfell-diff/       AsciiDoc-aware structural diff (standalone value): block
                     alignment + classification, inline word-diff,
                     annotated-HTML emission
-bokfell-coverage/   SDD coverage ingestion (per-line JSON), line→block
-                    mapping via source maps, overlay + rollup model
+bokfell-coverage/   spec-coverage engine (RFC 0001): verifies! claim
+                    scanning (syn), coverage-map sidecars, block-state
+                    resolution, rollups, Codecov export; interim per-line
+                    JSON reader kept for pre-computed data
 bokfell-serve/      dev server: notify watcher, debounce, incremental rebuild
                     orchestration, HTTP + WebSocket livereload, edit API
                     (click-to-source, write-back)
@@ -406,27 +408,39 @@ supported constructs.
 
 ### 9.2 Spec coverage ("what is tested / known good")
 
-Generalizes the SDD workflow already used here and in `asciidoc-parser`: test
-modules reproduce a spec page line-for-line inside `verifies!` /
-`non_normative!` markers, and the `sdd` tool emits Codecov-style per-line
-coverage JSON keyed by spec-file path.
+Generalizes the SDD workflow already used here and in `asciidoc-parser`.
+**The data contract below is superseded by
+[RFC 0001](docs/modules/rfcs/pages/0001-spec-coverage.adoc)** (second
+generation, implemented 2026-09-13), which separates the two facts the
+interim markers conflated:
 
-- **Data contract.** Define a small, documented coverage format (per source
-  file: line → status, where status ∈ verified / non-normative / uncovered,
-  plus provenance: which crate/test), produced by repos and consumed by the
-  generator. The existing `sdd` output is the seed; `bokfell-coverage` ships
-  the reader, and a `bokfell coverage` subcommand ports the (currently
-  "proof-of-concept, hard-coded") scanner so any repo using the marker
-  convention can emit it without bespoke tooling.
-- **Mapping.** Coverage is per *source line*; pages render from blocks. The
-  always-on source map lets `bokfell-coverage` project line statuses onto
-  blocks (and through includes), yielding block-level shading with
-  line-level detail.
-- **Presentation.** (a) A per-page overlay toggle: verified content plain,
-  non-normative dimmed/badged, uncovered flagged; (b) per-page and
-  per-component rollups (percent verified) as badges in nav and page headers;
-  (c) a component "coverage dashboard" page; (d) optional page-status
-  front-matter (draft/reviewed/known-good) folded into the same display.
+- **Claims** live in test code, free-floating: any test function, in any
+  file, crate, or repository, claims specific blocks of a spec page by
+  quoting an excerpt inside a no-op `verifies!` marker. A `syn`-based
+  static scan of the configured test roots finds them.
+- **Classification** lives with the implementation in a reviewed per-page
+  sidecar (the coverage map, `spec-map/<page path>.toml`): non-normative,
+  out-of-scope (with a reason), planned (with a tracking link);
+  structural heuristics default the rest.
+- **The unit of coverage is the block** — the same overlay block walk the
+  diff and edit features use — and every block resolves to exactly one of
+  six states (`verified`, `planned`, `uncovered`, `unclassified`,
+  `out-of-scope`, `non-normative`). Line ranges are derived from the
+  source map for the Codecov export (`bokfell coverage report --format
+  codecov`), which keeps the interim tools' CI uploads unchanged.
+- **Presentation.** (a) A per-page overlay toggle with the five-state
+  palette, a per-block detail panel (state, reason or ticket, claims), and
+  click-through to the verifying test (a templated repository URL, or the
+  §9.3 edit round-trip in `serve` for locally sourced tests); (b) per-page
+  and per-component rollups; (c) the site-wide `/coverage.html` dashboard
+  with stacked bars and out-of-scope shown beside them; (d) optional
+  page-status front-matter (draft/reviewed/known-good) folded into the
+  same display remains an idea, not implemented.
+
+The interim contract — `sdd`-style Codecov JSON keyed by spec-file path,
+projected onto blocks through the source map — is still read for
+pre-computed data (a content source's `coverage:` files), so existing
+uploads keep working during migration.
 - This is also the honest answer to "is this documentation trustworthy?" — a
   site can *show* that a claim is verified against the implementation, which
   no mainstream doc generator does.
@@ -506,10 +520,22 @@ Ordered to dogfood early and keep every milestone shippable:
   context/selector table; a count mismatch disables the overlay for that
   page rather than mis-shading), and a site-wide `/coverage.html`
   dashboard — verified against the real `sdd` output for all 37 dogfood
-  pages, every one pairing exactly. Still inside M4's umbrella: a
-  `bokfell coverage` scanner of our own (today the JSON comes from the
-  repo's test suite via `sdd`), and exact block anchoring once
-  asciidoc-html5#339 ships `data-source-line`.*
+  pages, every one pairing exactly.*
+  *Second generation done (2026-09-13, RFC 0001): `bokfell coverage
+  scan|report|lint` over the playbook's `coverage.scan` repositories
+  (local worktrees or git refs via the aggregator), `syn`-scanned
+  `verifies!` claims resolved per version by exact whitespace-normalized
+  excerpt, TOML coverage maps with the six-state precedence rules and
+  hard errors for drift, ambiguity, and contradictions, a block-level
+  database that `build`/`serve` consume directly, the five-state overlay
+  with per-block detail and click-through, the stacked-bar dashboard, and
+  the Codecov projection. Dogfooded on this repository: `bokfell.yml`
+  builds the `docs/` component and measures RFC 0001 against claims in
+  four workspace crates, gated in CI. Still inside M4's umbrella: the §9
+  migration converter for the interim `asciidoc-parser`/`asciidoc-html5`
+  marker corpus, `lint`'s closed-ticket check for planned entries (needs
+  a network call), and list-item granularity (a list is one block today,
+  matching the overlay walk).*
 - **M5 — Diff views.** `bokfell-diff` engine, version-pair pages, "what
   changed" index, PR preview mode (base vs head), CI recipe. Exit: a PR
   against a docs repo produces a browsable diff-highlighted preview site.

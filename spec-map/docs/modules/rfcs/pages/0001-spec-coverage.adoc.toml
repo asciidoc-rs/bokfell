@@ -1,0 +1,43 @@
+# Coverage map for RFC 0001 (docs/modules/rfcs/pages/0001-spec-coverage.adoc).
+#
+# Entries target blocks by the same excerpt grammar `verifies!` claims use;
+# `bokfell coverage lint` lists what still needs a decision here.
+
+reviewed = true
+
+# Front matter and framing: status line, the proof-of-concept note, and
+# the section intros that introduce a rule without stating one.
+[[non-normative]]
+excerpt = "Status: *draft*"
+
+[[non-normative]]
+excerpt = "This document is also the design's first proof of concept"
+
+[[non-normative]]
+section = "_problems_with_the_interim_design"
+
+[[non-normative]]
+excerpt = "Separate the two facts, and add the states the interim design couldn't express:"
+
+[[non-normative]]
+excerpt = "Notes on the two states the interim design lacked:"
+
+[[non-normative]]
+excerpt = "Commands:"
+
+# The runtime-collector variant is explicitly deferred design discussion.
+[[non-normative]]
+excerpt = "_Deliberately deferred:_ a proc-macro/`inventory` variant"
+
+# Migration: the marker corpus statement describes the interim repos; the
+# converter and parity check are planned work, tracked on the RFC's own
+# pull request until a dedicated issue exists.
+[[non-normative]]
+excerpt = "The existing marker corpus is a hand-reviewed classification of every tracked page"
+
+[[planned]]
+excerpt = "A one-shot converter rewrites each `verifies!` reproduction block"
+tracking = "asciidoc-rs/bokfell#9"
+
+[[non-normative]]
+excerpt = "All four questions this RFC originally left open were resolved"

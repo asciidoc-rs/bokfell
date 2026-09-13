@@ -13,10 +13,11 @@ content:
     - path: docs
 
       # Spec-coverage demo: hand-written per-line data for the home page
-      # (in real projects this JSON comes from a test-coverage tool such
-      # as asciidoc-rs's `sdd`). It puts a "60% verified" badge on the
-      # page; click it to shade each block by verification status, and
-      # see /coverage.html for the site-wide rollup.
+      # in the interim Codecov-style format (projected onto blocks at
+      # build time; the second-generation engine, `bokfell coverage
+      # scan`, resolves `verifies!` claims instead — see RFC 0001). It
+      # puts a verified-percentage badge on the page; click it to shade
+      # each block by state, and see /coverage.html for the rollup.
       coverage:
         - spec-coverage.json
 

@@ -10,3 +10,7 @@ target
 
 # Example-site build output
 examples/*/build
+
+# The dogfood site and coverage database (`bokfell build` / `bokfell
+# coverage scan` at the repository root)
+/build

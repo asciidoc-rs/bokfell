@@ -1,4 +1,4 @@
-// Bokfell page overlays: spec coverage (PLAN.md §9.2), diff
+// Bokfell page overlays: spec coverage (PLAN.md §9.2, RFC 0001 §8), diff
 // highlighting (PLAN.md §9.1), and click-to-source editing (PLAN.md
 // §9.3, serve mode only).
 //
@@ -131,15 +131,22 @@ function bokfellPairByLine(annotatedLines, targetLines) {
     }
   }
 
+  // Coverage (RFC 0001 §8): each block's entry is null (no block state)
+  // or {s: state, r: reason, t: [tracking, url], c: [claims]} where a
+  // claim is {l: label, u: url, f: "file:line", e: [file, line]} — `e`
+  // only in serve mode for locally sourced tests. (A bare state string
+  // is accepted too.)
   wire(
     document.getElementById("bokfell-cov-toggle"),
     data.coverage,
     "coverage-overlay",
     function () {
       for (var i = 0; i < blocks.length; i++) {
-        if (data.coverage[i]) {
-          blocks[i].setAttribute("data-coverage", data.coverage[i]);
-        }
+        var entry = data.coverage[i];
+        if (!entry) continue;
+        var state = typeof entry === "string" ? entry : entry.s;
+        blocks[i].setAttribute("data-coverage", state);
+        if (typeof entry === "object") attachCoverageDetail(blocks[i], entry);
       }
     }
   );
@@ -218,6 +225,104 @@ function bokfellPairByLine(annotatedLines, targetLines) {
       pre.innerHTML = html;
       block.parentNode.insertBefore(pre, block.nextSibling);
     });
+  }
+
+  // A covered block toggles its detail panel on click (while the
+  // coverage overlay is on): state, reason or ticket, and each claim
+  // with a link to the verifying test.
+  function attachCoverageDetail(block, entry) {
+    block.addEventListener("click", function (ev) {
+      if (!document.body.classList.contains("coverage-overlay")) return;
+      if (ev.target.closest("a, button, summary, input")) return;
+      var next = block.nextElementSibling;
+      if (next && next.classList.contains("bokfell-cov-detail")) {
+        next.remove();
+        return;
+      }
+      block.parentNode.insertBefore(coverageDetail(entry), block.nextSibling);
+    });
+  }
+
+  function coverageDetail(entry) {
+    var panel = document.createElement("div");
+    panel.className = "bokfell-cov-detail";
+
+    var state = document.createElement("p");
+    state.className = "cov-state cov-" + entry.s;
+    state.textContent = entry.s.replace(/-/g, " ");
+    panel.appendChild(state);
+
+    if (entry.r) {
+      var reason = document.createElement("p");
+      reason.textContent = "Reason: " + entry.r;
+      panel.appendChild(reason);
+    }
+    if (entry.t) {
+      var tracking = document.createElement("p");
+      tracking.appendChild(document.createTextNode("Tracking: "));
+      var link = document.createElement("a");
+      link.href = entry.t[1];
+      link.textContent = entry.t[0];
+      tracking.appendChild(link);
+      panel.appendChild(tracking);
+    }
+
+    var claims = entry.c || [];
+    var heading = document.createElement("p");
+    heading.textContent = claims.length
+      ? "Verified by " + claims.length + (claims.length === 1 ? " claim:" : " claims:")
+      : entry.s === "verified" ? "" : "No test claims this block.";
+    if (heading.textContent) panel.appendChild(heading);
+
+    if (claims.length) {
+      var list = document.createElement("ul");
+      for (var i = 0; i < claims.length; i++) {
+        var claim = claims[i];
+        var item = document.createElement("li");
+        if (claim.u) {
+          var a = document.createElement("a");
+          a.href = claim.u;
+          a.textContent = claim.l;
+          item.appendChild(a);
+        } else {
+          item.appendChild(document.createTextNode(claim.l));
+        }
+        var site = document.createElement("span");
+        site.className = "cov-site";
+        site.textContent = claim.f;
+        item.appendChild(site);
+        if (claim.e) item.appendChild(openTestButton(claim.e[0], claim.e[1]));
+        list.appendChild(item);
+      }
+      panel.appendChild(list);
+    }
+    return panel;
+  }
+
+  // Serve mode: "open test" reuses the edit round-trip for the claim's
+  // local Rust file (PLAN.md §9.3).
+  function openTestButton(file, line) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "open test";
+    button.title = "Open " + file + ":" + line + " in your editor";
+    button.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      var params = new URLSearchParams({ file: file, line: String(line) });
+      fetch("/__bokfell/edit?" + params.toString(), { method: "POST" }).then(
+        function (response) {
+          if (!response.ok) {
+            response.text().then(function (text) {
+              window.alert(text || "Cannot open the editor.");
+            });
+          }
+        },
+        function () {
+          window.alert("Cannot reach the dev server.");
+        }
+      );
+    });
+    return button;
   }
 })();
 
