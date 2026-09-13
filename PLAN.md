@@ -532,8 +532,9 @@ Ordered to dogfood early and keep every milestone shippable:
   the Codecov projection. Dogfooded on this repository: `bokfell.yml`
   builds the `docs/` component and measures RFC 0001 against claims in
   four workspace crates, gated in CI. Still inside M4's umbrella: the §9
-  migration converter for the interim `asciidoc-parser`/`asciidoc-html5`
-  marker corpus, `lint`'s closed-ticket check for planned entries (needs
+  migration of the interim `asciidoc-parser`/`asciidoc-html5` marker
+  corpus ([bokfell#11](https://github.com/asciidoc-rs/bokfell/issues/11)),
+  `lint`'s closed-ticket check for planned entries (needs
   a network call), and list-item granularity (a list is one block today,
   matching the overlay walk).*
 - **M5 — Diff views.** `bokfell-diff` engine, version-pair pages, "what

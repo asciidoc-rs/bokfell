@@ -30,14 +30,13 @@ excerpt = "Commands:"
 excerpt = "_Deliberately deferred:_ a proc-macro/`inventory` variant"
 
 # Migration: the marker corpus statement describes the interim repos; the
-# converter and parity check are planned work, tracked on the RFC's own
-# pull request until a dedicated issue exists.
+# converter, parity check, and reclassification pass are planned work.
 [[non-normative]]
 excerpt = "The existing marker corpus is a hand-reviewed classification of every tracked page"
 
 [[planned]]
 excerpt = "A one-shot converter rewrites each `verifies!` reproduction block"
-tracking = "asciidoc-rs/bokfell#9"
+tracking = "asciidoc-rs/bokfell#11"
 
 [[non-normative]]
 excerpt = "All four questions this RFC originally left open were resolved"
