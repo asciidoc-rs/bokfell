@@ -152,13 +152,15 @@ verifies!("<path>#<anchor>");                     // claim a whole section
   `track_file!` convention). The tool resolves it by suffix-matching
   against the catalog's source paths; ambiguity is a hard error fixed by
   writing a longer path.
-* *Excerpt* is matched against the page's block text after whitespace
-  normalization (the same collapse rules the search indexer uses). The
-  excerpt may be any contiguous substring of one block. Matching is
-  *exact* after normalization -- fuzziness would silently heal spec
-  drift, and drift detection is a feature we keep on purpose: when the
-  upstream paragraph changes, exactly the claims that quote it fail to
-  resolve, and no others.
+* *Excerpt* is matched against the block's *source* text after
+  whitespace normalization (the same collapse rules the search indexer
+  uses) -- normalization collapses whitespace only, and inline markup is
+  not stripped, so excerpts are quoted from the `.adoc` source and stay
+  reviewable against it. The excerpt may be any contiguous substring of
+  one block. Matching is *exact* after normalization -- fuzziness would
+  silently heal spec drift, and drift detection is a feature we keep on
+  purpose: when the upstream paragraph changes, exactly the claims that
+  quote it fail to resolve, and no others.
 * *Ambiguity* (excerpt matches more than one block in scope) is a hard
   error; the fix is a longer excerpt or a `#anchor` scope.
 * *Whole-section claims* are for tests that genuinely exercise an entire
@@ -167,6 +169,10 @@ verifies!("<path>#<anchor>");                     // claim a whole section
 * A test may carry any number of `verifies!` invocations; any number of
   tests may claim the same block. Rollup is set union -- merging is
   order-free and cross-crate/cross-repo by construction.
+* Claims are *block-granular and binary*: there is no "partially
+  verifies" qualifier, and a claim on a paragraph that states two rules
+  is accepted rounding. Revisit if migrated or new pages produce
+  evidence that the rounding hides real gaps.
 
 Each resolved claim records `(spec page, block, rust file, line, enclosing
 test fn, crate, repo, rev)` -- the provenance the click-through
@@ -212,8 +218,10 @@ and listing blocks, block titles, images, and nav are non-normative by
 default; prose paragraphs, admonitions, and tables default to
 `unclassified` on pages that have no sidecar at all, and to _normative_
 (i.e. `uncovered` until claimed) on pages whose sidecar declares
-`reviewed = true` at the top. This keeps the pressure state meaningful:
-a page becomes "fully classified" by an explicit human act, not by the
+`reviewed = true` at the top. `reviewed` is *per page*; a finer
+per-section scope can be added later if long pages need incremental
+classification. This keeps the pressure state meaningful: a page
+becomes "fully classified" by an explicit human act, not by the
 heuristic's silence.
 
 == Extraction: how claims are found
@@ -260,8 +268,10 @@ Commands:
 
 * `bokfell coverage scan` -- aggregate (reusing `bokfell-aggregate`), parse
   measured pages, scan test roots, resolve claims and sidecar entries,
-  write the coverage database. Unresolved or ambiguous excerpts are
-  errors listed with file/line provenance.
+  write the coverage database. The database is *ephemeral* -- recomputed
+  by every scan, never committed; `--format codecov` is the only
+  persisted export. Unresolved or ambiguous excerpts are errors listed
+  with file/line provenance.
 * `bokfell coverage report [--format table|json|codecov]` -- rollups.
   `--format codecov` projects block states onto line ranges via the source
   map and emits the interim tools' schema, so existing CI uploads swap
@@ -319,19 +329,23 @@ tracked page -- harvest it, don't discard it:
   the full-page-reproduction convention retire; `--format codecov` keeps
   the CI uploads unchanged.
 
-== Open questions
+== Resolved questions
 
-. *Excerpt normalization details* -- is whitespace collapse enough, or
-  should inline markup be stripped before matching (so an excerpt can be
-  quoted from the _rendered_ page)? Leaning: match against the parsed
-  block's source text with whitespace collapse only; quoting from source
-  keeps claims reviewable against the `.adoc` file.
-. *Sub-block granularity* -- a block-level claim occasionally covers a
-  paragraph that states two rules. Is that acceptable rounding, or do we
-  need an optional "partially verifies" qualifier? Leaning: accept the
-  rounding; revisit with evidence.
-. *`reviewed = true` semantics* -- per page, or per section for long
-  pages that get classified incrementally?
-. *Where the coverage database lives* -- ephemeral (recomputed by every
-  `scan`) vs committed artifact. Leaning: ephemeral, with
-  `--format codecov` as the only persisted export.
+All four questions this RFC originally left open were resolved
+2026-09-13; the decisions are folded into the sections above and
+recorded here.
+
+. *Excerpt normalization* -- whitespace collapse only. Excerpts match
+  the parsed block's source text with inline markup intact, so claims
+  are quoted from and reviewable against the `.adoc` file
+  (<<_claims_the_verifies_marker,§4>>).
+. *Sub-block granularity* -- claims are block-granular and binary; a
+  paragraph stating two rules is accepted rounding. An initial call, to
+  be revisited if migration or new pages show the rounding hiding real
+  gaps (<<_claims_the_verifies_marker,§4>>).
+. *`reviewed = true` semantics* -- per page to start; a per-section
+  scope can be added later if long pages need incremental
+  classification (<<_classification_the_coverage_map,§5>>).
+. *Coverage database* -- ephemeral, recomputed by every `scan` and
+  never committed; `--format codecov` is the only persisted export
+  (<<_cli_surface,§7>>).
