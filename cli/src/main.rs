@@ -379,12 +379,13 @@ fn compose_site(
         }
     }
 
-    // The static search index (PLAN.md §12): one entry per page.
+    // The static search index (PLAN.md §12): a lead entry per page plus
+    // one per anchored section, so results land on the section itself.
     let entries: Vec<bokfell_search::SearchEntry> = site
         .pages
         .iter()
-        .map(|page| {
-            bokfell_search::SearchEntry::from_html(
+        .flat_map(|page| {
+            bokfell_search::page_entries(
                 page.title_text.as_deref().unwrap_or(&page.url),
                 &page.url,
                 &page.contents,

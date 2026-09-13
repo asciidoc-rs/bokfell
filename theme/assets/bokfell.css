@@ -369,6 +369,14 @@ a:hover { text-decoration: underline; }
   margin-bottom: 0.15rem;
 }
 
+#bokfell-search-results .result-page {
+  display: block;
+  font-size: 0.72rem;
+  font-style: normal;
+  color: var(--bf-muted);
+  margin-bottom: 0.15rem;
+}
+
 #bokfell-search-results span {
   font-size: 0.8rem;
   color: var(--bf-muted);
