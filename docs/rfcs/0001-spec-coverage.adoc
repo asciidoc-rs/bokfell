@@ -14,7 +14,7 @@ The interim marker grammar makes one structural decision that causes every
 fragility we've hit: it expresses *two different facts in the same place*.
 
 . _Coverage claims_ -- `verifies!` says "this test verifies these lines."
-. _Spec classification_ — `non_normative!` says "these lines carry no rule
+. _Spec classification_ -- `non_normative!` says "these lines carry no rule
   to verify."
 
 Classification is a property of the spec text, not of any test. Because it
