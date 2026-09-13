@@ -28,7 +28,7 @@ mod resolve;
 mod sidecar;
 mod text;
 
-pub use claims::{scan_source, scan_test_root, ScanError, TestRoot};
+pub use claims::{manifest_package_name, scan_source, scan_test_root, ScanError, TestRoot};
 pub use legacy::{CoverageData, CoverageError, CoverageScope, LineCoverage, LineStatus};
 pub use model::{
     BlockCoverage, BlockState, Claim, ClaimSite, ClaimTarget, MeasuredPage, PageCoverage,

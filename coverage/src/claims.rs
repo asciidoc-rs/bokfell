@@ -66,6 +66,10 @@ pub struct TestRoot {
     pub rev: Option<String>,
     /// The `coverage.scan` entry index the root belongs to.
     pub scope: usize,
+    /// The crate name to record when no `Cargo.toml` is found at or
+    /// above a file within the root — a remote root is exported as a
+    /// bare subtree, so the caller supplies the enclosing package.
+    pub krate: Option<String>,
 }
 
 /// Scans one test root for `verifies!` claims, in file order.
@@ -94,7 +98,7 @@ pub fn scan_test_root(root: &TestRoot) -> Result<Vec<Claim>, ScanError> {
             path: path.display().to_string(),
             source,
         })?;
-        let krate = crate_name_for(&path, &mut crates);
+        let krate = crate_name_for(&path, &mut crates).or_else(|| root.krate.clone());
         let site = ClaimSite {
             file,
             local_path: root.local.then(|| path.clone()),
@@ -254,8 +258,12 @@ fn crate_name_for(file: &Path, cache: &mut HashMap<PathBuf, Option<String>>) -> 
 }
 
 fn package_name(manifest: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(manifest).ok()?;
-    let value: toml::Value = toml::from_str(&text).ok()?;
+    manifest_package_name(&std::fs::read_to_string(manifest).ok()?)
+}
+
+/// The `[package] name` of a `Cargo.toml`'s text, if it declares one.
+pub fn manifest_package_name(text: &str) -> Option<String> {
+    let value: toml::Value = toml::from_str(text).ok()?;
     value
         .get("package")?
         .get("name")?
@@ -420,6 +428,7 @@ verifies!("component:module:page.adoc", "cross repo");
             repo: Some("https://github.com/o/r".to_string()),
             rev: Some("abc".to_string()),
             scope: 1,
+            krate: Some("fallback".to_string()),
         })
         .unwrap();
         assert_eq!(claims.len(), 1);
@@ -433,6 +442,36 @@ verifies!("component:module:page.adoc", "cross repo");
             Some(dir.join("mycrate/src/tests/a.rs").as_path())
         );
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn crate_fallback_applies_without_a_manifest() {
+        let dir =
+            std::env::temp_dir().join(format!("bokfell-claims-nocrate-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("a.rs"),
+            "fn t() { verifies!(\"p.adoc\", \"x\"); }\n",
+        )
+        .unwrap();
+        let claims = scan_test_root(&TestRoot {
+            dir: dir.clone(),
+            repo_prefix: "html5/src/tests".to_string(),
+            local: false,
+            repo: None,
+            rev: None,
+            scope: 0,
+            krate: Some("asciidoc-html5".to_string()),
+        })
+        .unwrap();
+        assert_eq!(claims[0].site.krate.as_deref(), Some("asciidoc-html5"));
+        assert_eq!(
+            manifest_package_name("[package]\nname = \"x\"\n").as_deref(),
+            Some("x")
+        );
+        assert_eq!(manifest_package_name("[workspace]\nmembers = []\n"), None);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -3,12 +3,16 @@
 //! coverage maps from those repositories, resolving them into the
 //! coverage database, and templating claim click-through links.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context;
-use bokfell_aggregate::{local_repo_info, Aggregator, GitSource};
+use bokfell_aggregate::{file_matches_head, local_repo_info, Aggregator, GitSource};
 use bokfell_coverage::{
-    load_spec_map, resolve, scan_test_root, Claim, CoverageDatabase, Sidecar, TestRoot,
+    load_spec_map, manifest_package_name, resolve, scan_test_root, Claim, CoverageDatabase,
+    Sidecar, TestRoot,
 };
 use bokfell_model::{Playbook, ScanConfig, VirtualFile};
 use bokfell_render::Pipeline;
@@ -38,6 +42,40 @@ pub fn resolve_repo_url(playbook: &Playbook, url: &str) -> String {
     }
 }
 
+/// One comparable identity for a repository URL or local path, so
+/// equivalent spellings name the same repository: a local path
+/// canonicalizes; a URL drops its scheme, user, trailing slash, and
+/// `.git` suffix, so `https://github.com/o/r.git`, `git@github.com:o/r`,
+/// and `ssh://git@github.com/o/r/` all compare equal.
+pub fn repo_identity(url: &str) -> String {
+    let trimmed = url.trim();
+    let local = Path::new(trimmed);
+    if local.exists() {
+        if let Ok(canonical) = local.canonicalize() {
+            return canonical.display().to_string();
+        }
+    }
+    let rest = match trimmed.split_once("://") {
+        Some((_, rest)) => rest,
+        None => trimmed,
+    };
+    // `user@host:path` (scp-like) → `host/path`; `user@host/path` →
+    // `host/path`.
+    let rest = match rest.split_once('@') {
+        Some((user, after)) if !user.contains('/') => after,
+        _ => rest,
+    };
+    let rest = match rest.split_once(':') {
+        Some((host, path)) if !host.contains('/') && !path.starts_with("//") => {
+            format!("{host}/{}", path.trim_start_matches('/'))
+        }
+        _ => rest.to_string(),
+    };
+    let rest = rest.trim_end_matches('/');
+    let rest = rest.strip_suffix(".git").unwrap_or(rest);
+    rest.trim_end_matches('/').to_ascii_lowercase()
+}
+
 /// A repository named by a `coverage.scan` entry, ready to scan.
 struct ScanScope<'a> {
     index: usize,
@@ -46,9 +84,14 @@ struct ScanScope<'a> {
     local_dir: Option<PathBuf>,
     /// A git repository (`repo`): the resolved URL.
     repo_url: Option<String>,
+    /// The comparable identity of the repository (see [`repo_identity`]).
+    identity: String,
     /// Provenance recorded on claims.
     repo: Option<String>,
     rev: Option<String>,
+    /// For a local worktree: the enclosing repository's root, so a
+    /// claim's file can be compared against `rev`.
+    repo_root: Option<PathBuf>,
 }
 
 /// The repository-relative path of a page under one scan scope, when
@@ -65,13 +108,8 @@ fn locate_in_scope(scope: &ScanScope<'_>, root: &LoadedRoot, file: &VirtualFile)
 
     if let Some((url, start_path)) = &root.git {
         // A git content source belongs to the scan entry naming the same
-        // repository: by URL, or — for a local clone — by directory.
-        let same = scope.repo_url.as_deref() == Some(url.as_str())
-            || scope
-                .local_dir
-                .as_ref()
-                .is_some_and(|dir| Path::new(url).canonicalize().ok().as_deref() == Some(dir));
-        if !same {
+        // repository, whichever way either side spells it.
+        if repo_identity(url) != scope.identity {
             return None;
         }
         return Some(join_repo_path(start_path, &rel));
@@ -126,30 +164,38 @@ pub fn scan(
             ScanScope {
                 index,
                 config,
+                identity: repo_identity(&dir.display().to_string()),
                 local_dir: Some(dir),
                 repo_url: None,
                 repo: info.as_ref().and_then(|i| i.remote_url.clone()),
                 rev: info.as_ref().and_then(|i| i.head.clone()),
+                repo_root: info.map(|i| i.root),
             }
         } else {
             let url = resolve_repo_url(playbook, config.repo.as_deref().expect("validated"));
             ScanScope {
                 index,
                 config,
+                identity: repo_identity(&url),
                 local_dir: None,
                 repo_url: Some(url.clone()),
                 repo: Some(url),
                 rev: None,
+                repo_root: None,
             }
         };
         scopes.push(scope);
     }
 
     // Measure: each page belongs to the first scope whose repository
-    // holds it and whose `pages` filter admits it.
+    // holds it and whose `pages` filter admits it. A component version
+    // may be distributed over several roots, so the root is the one
+    // whose directory holds the file, not the first with that key.
     let measured = pipeline.measure_pages(|file| {
         let root = roots.iter().find(|root| {
-            root.component.0 == file.coords.component && root.component.1 == file.coords.version
+            root.component.0 == file.coords.component
+                && root.component.1 == file.coords.version
+                && file.src_path.starts_with(&root.root)
         })?;
         scopes.iter().find_map(|scope| {
             let repo_path = locate_in_scope(scope, root, file)?;
@@ -173,11 +219,34 @@ pub fn scan(
                     repo: scope.repo.clone(),
                     rev: scope.rev.clone(),
                     scope: scope.index,
+                    krate: None,
                 };
-                claims.extend(
-                    scan_test_root(&root)
-                        .with_context(|| format!("scanning test root {}", root.dir.display()))?,
-                );
+                let mut found = scan_test_root(&root)
+                    .with_context(|| format!("scanning test root {}", root.dir.display()))?;
+
+                // A worktree is read as is, uncommitted edits included: a
+                // claim keeps `HEAD` as its revision only when its file is
+                // what `HEAD` records, so click-through links never point
+                // at code that is not there.
+                let mut verdicts: HashMap<PathBuf, bool> = HashMap::new();
+                for claim in &mut found {
+                    let at_head = match (&scope.repo_root, &claim.site.local_path) {
+                        (Some(repo_root), Some(path)) => {
+                            *verdicts.entry(path.clone()).or_insert_with(|| {
+                                path.strip_prefix(repo_root)
+                                    .ok()
+                                    .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+                                    .and_then(|rel| file_matches_head(repo_root, &rel))
+                                    .unwrap_or(false)
+                            })
+                        }
+                        _ => false,
+                    };
+                    if !at_head {
+                        claim.site.rev = None;
+                    }
+                }
+                claims.extend(found);
             }
             if let Some(spec_map) = &scope.config.spec_map {
                 sidecars.extend(load_spec_map(&dir.join(spec_map), spec_map, scope.index)?);
@@ -200,6 +269,31 @@ pub fn scan(
             for tests in &scope.config.tests {
                 let (dir, commit) = export(tests)
                     .with_context(|| format!("exporting test root {tests} of {url}"))?;
+
+                // The export is a bare subtree: the crate's `Cargo.toml`
+                // usually sits above it, so read the nearest ancestor
+                // manifest straight from the repository.
+                let source = GitSource {
+                    url: url.clone(),
+                    branches: Vec::new(),
+                    tags: Vec::new(),
+                    start_path: String::new(),
+                    version_from_ref: false,
+                };
+                let mut krate = None;
+                let mut ancestor = Path::new(tests.trim_matches('/')).parent();
+                while let Some(dir) = ancestor {
+                    let manifest =
+                        join_repo_path(&dir.to_string_lossy().replace('\\', "/"), "Cargo.toml");
+                    if let Some(bytes) = aggregator.read_blob(&source, reference, &manifest)? {
+                        krate = manifest_package_name(&String::from_utf8_lossy(&bytes));
+                        if krate.is_some() {
+                            break;
+                        }
+                    }
+                    ancestor = dir.parent();
+                }
+
                 let root = TestRoot {
                     dir,
                     repo_prefix: tests.clone(),
@@ -207,6 +301,7 @@ pub fn scan(
                     repo: scope.repo.clone(),
                     rev: Some(commit),
                     scope: scope.index,
+                    krate,
                 };
                 claims.extend(scan_test_root(&root)?);
             }
@@ -315,6 +410,28 @@ mod tests {
         assert_eq!(
             claim_url(&c, Some("{repo_url}/-/blob/{rev}/{path}#L{line} ({repo})")).as_deref(),
             Some("https://gitlab.com/o/r/-/blob/abc/html5/src/tests/lists.rs#L42 (https://gitlab.com/o/r)")
+        );
+    }
+
+    #[test]
+    fn equivalent_repository_spellings_share_an_identity() {
+        let canonical = repo_identity("https://github.com/asciidoc-rs/asciidoc-html5");
+        for spelling in [
+            "https://github.com/asciidoc-rs/asciidoc-html5.git",
+            "https://github.com/asciidoc-rs/asciidoc-html5/",
+            "git@github.com:asciidoc-rs/asciidoc-html5.git",
+            "ssh://git@github.com/asciidoc-rs/asciidoc-html5",
+            "HTTPS://GitHub.com/asciidoc-rs/asciidoc-html5",
+        ] {
+            assert_eq!(repo_identity(spelling), canonical, "{spelling}");
+        }
+        assert_ne!(
+            repo_identity("https://github.com/asciidoc-rs/asciidoc-parser"),
+            canonical
+        );
+        assert_ne!(
+            repo_identity("https://gitlab.com/o/r"),
+            repo_identity("https://github.com/o/r")
         );
     }
 

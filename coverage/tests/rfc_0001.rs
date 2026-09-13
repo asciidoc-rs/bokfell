@@ -836,6 +836,7 @@ fn scanning_a_real_test_root() {
         repo: None,
         rev: None,
         scope: 0,
+        krate: None,
     })
     .unwrap();
     let mine: Vec<&Claim> = claims
