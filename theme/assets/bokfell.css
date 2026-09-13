@@ -438,21 +438,41 @@ span.cov-high, span.cov-mid, span.cov-low {
    planned amber with the ticket, uncovered and unclassified red-family
    (unclassified hatched), out-of-scope dimmed with a scope badge,
    non-normative dimmed. */
-.coverage-overlay .doc [data-coverage] { border-radius: 3px; cursor: pointer; }
+.coverage-overlay .doc [data-coverage] { cursor: pointer; }
+
+/* The state band sits in the gutter to the left of the block, never
+   under its text: the block shifts left by the band plus a gap and pads
+   the same amount back, so its content stays exactly where it was. */
+.coverage-overlay .doc [data-coverage],
+.diff-overlay .doc [data-diff] {
+  border-left: 3px solid transparent;
+  border-radius: 3px;
+  margin-left: calc(-0.75rem - 3px);
+  padding-left: 0.75rem;
+}
+
+/* A collapsed-border table ignores padding, so its band sits flush
+   against the table's own edge instead (cell padding keeps the text
+   clear of it). */
+.coverage-overlay .doc table[data-coverage],
+.diff-overlay .doc table[data-diff] {
+  margin-left: -3px;
+  padding-left: 0;
+}
 
 .coverage-overlay .doc [data-coverage="verified"] {
   background: rgba(47, 158, 68, 0.12);
-  box-shadow: inset 3px 0 0 #2f9e44;
+  border-left-color: #2f9e44;
 }
 
 .coverage-overlay .doc [data-coverage="planned"] {
   background: rgba(205, 139, 18, 0.14);
-  box-shadow: inset 3px 0 0 #cd8b12;
+  border-left-color: #cd8b12;
 }
 
 .coverage-overlay .doc [data-coverage="uncovered"] {
   background: rgba(224, 49, 49, 0.1);
-  box-shadow: inset 3px 0 0 #e03131;
+  border-left-color: #e03131;
 }
 
 .coverage-overlay .doc [data-coverage="unclassified"] {
@@ -461,13 +481,13 @@ span.cov-high, span.cov-mid, span.cov-low {
     rgba(224, 49, 49, 0.14) 0 6px,
     rgba(224, 49, 49, 0.04) 6px 12px
   );
-  box-shadow: inset 3px 0 0 #e03131;
+  border-left-color: #e03131;
 }
 
 .coverage-overlay .doc [data-coverage="out-of-scope"],
 .coverage-overlay .doc [data-coverage="non-normative"] {
   opacity: 0.55;
-  box-shadow: inset 3px 0 0 var(--bf-border);
+  border-left-color: var(--bf-border);
 }
 
 .coverage-overlay .doc [data-coverage="out-of-scope"] { position: relative; }
@@ -550,16 +570,14 @@ span.cov-high, span.cov-mid, span.cov-low {
   border-color: var(--bf-accent);
 }
 
-.diff-overlay .doc [data-diff] { border-radius: 3px; }
-
 .diff-overlay .doc [data-diff="added"] {
   background: rgba(25, 113, 194, 0.12);
-  box-shadow: inset 3px 0 0 #1971c2;
+  border-left-color: #1971c2;
 }
 
 .diff-overlay .doc [data-diff="edited"] {
   background: rgba(156, 54, 181, 0.1);
-  box-shadow: inset 3px 0 0 #9c36b5;
+  border-left-color: #9c36b5;
 }
 
 .diff-overlay .doc [data-diff].has-diff-detail { cursor: pointer; }

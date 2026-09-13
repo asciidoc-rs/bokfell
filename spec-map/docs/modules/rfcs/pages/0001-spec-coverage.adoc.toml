@@ -1,7 +1,9 @@
 # Coverage map for RFC 0001 (docs/modules/rfcs/pages/0001-spec-coverage.adoc).
 #
 # Entries target blocks by the same excerpt grammar `verifies!` claims use;
-# `bokfell coverage lint` lists what still needs a decision here.
+# `bokfell coverage lint` lists what still needs a decision here. A
+# `reason` on a non-normative entry records why that prose carries no
+# rule, which answers the heuristic's question and keeps lint quiet.
 
 reviewed = true
 
@@ -9,30 +11,38 @@ reviewed = true
 # the section intros that introduce a rule without stating one.
 [[non-normative]]
 excerpt = "Status: *draft*"
+reason = "document status line"
 
 [[non-normative]]
 excerpt = "This document is also the design's first proof of concept"
+reason = "explains why the RFC is itself a measured page"
 
 [[non-normative]]
 section = "_problems_with_the_interim_design"
+reason = "motivation: describes the interim design's failures, states no rule"
 
 [[non-normative]]
 excerpt = "Separate the two facts, and add the states the interim design couldn't express:"
+reason = "introduces the list that carries the rules"
 
 [[non-normative]]
 excerpt = "Notes on the two states the interim design lacked:"
+reason = "introduces the list that carries the rules"
 
 [[non-normative]]
 excerpt = "Commands:"
+reason = "introduces the command list"
 
 # The runtime-collector variant is explicitly deferred design discussion.
 [[non-normative]]
 excerpt = "_Deliberately deferred:_ a proc-macro/`inventory` variant"
+reason = "design discussion of a deferred alternative"
 
 # Migration: the marker corpus statement describes the interim repos; the
 # converter, parity check, and reclassification pass are planned work.
 [[non-normative]]
 excerpt = "The existing marker corpus is a hand-reviewed classification of every tracked page"
+reason = "describes the interim repositories' state"
 
 [[planned]]
 excerpt = "A one-shot converter rewrites each `verifies!` reproduction block"
@@ -40,3 +50,4 @@ tracking = "asciidoc-rs/bokfell#11"
 
 [[non-normative]]
 excerpt = "All four questions this RFC originally left open were resolved"
+reason = "decision log; the rules it points to are stated in the sections above"

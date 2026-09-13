@@ -547,8 +547,14 @@ pub fn resolve(
                     message: format!("unclassified {} {excerpt:?}", block.context),
                 });
             }
+            // A non-normative entry on prose is the heuristic's question
+            // ("non-normative, or out of scope?"); a `reason` on the entry
+            // is the human's answer and closes it.
             if let Some((sidecar, e)) = entry {
-                if e.kind == SidecarKind::NonNormative && block.kind == StructuralKind::Prose {
+                if e.kind == SidecarKind::NonNormative
+                    && block.kind == StructuralKind::Prose
+                    && e.reason.is_none()
+                {
                     lint.push(Diagnostic {
                         kind: DiagnosticKind::HeuristicDisagreement,
                         at: sidecar.file.clone(),
@@ -563,7 +569,9 @@ pub fn resolve(
             }
 
             let (reason, tracking) = match (state, entry) {
-                (BlockState::OutOfScope, Some((_, e))) => (e.reason.clone(), None),
+                (BlockState::OutOfScope | BlockState::NonNormative, Some((_, e))) => {
+                    (e.reason.clone(), None)
+                }
                 (BlockState::Planned, Some((_, e))) => (None, e.tracking.clone()),
                 _ => (None, None),
             };
@@ -928,11 +936,30 @@ tracking = "o/r#1"
         assert_eq!(db.pages[0].coverage.counts.denominator(), 2);
         assert_eq!(db.pages[0].coverage.percent_verified(), 50);
 
-        // The non-normative entry on prose is a heuristic disagreement.
+        // The non-normative entry on prose is a heuristic disagreement…
         assert!(db
             .lint
             .iter()
             .any(|d| d.kind == DiagnosticKind::HeuristicDisagreement));
+
+        // …until a reason records the decision, which also rides along
+        // for the overlay.
+        let answered = Sidecar::parse(
+            "[[non-normative]]\nexcerpt = \"Intro prose\"\nreason = \"framing, not a rule\"\n",
+            "spec-map/ordered.adoc.toml",
+            "ordered.adoc",
+            0,
+        )
+        .unwrap();
+        let db = resolve(&[sample_page(None)], Vec::new(), &[answered]);
+        assert!(!db
+            .lint
+            .iter()
+            .any(|d| d.kind == DiagnosticKind::HeuristicDisagreement));
+        assert_eq!(
+            db.pages[0].coverage.blocks[0].reason.as_deref(),
+            Some("framing, not a rule")
+        );
     }
 
     #[test]

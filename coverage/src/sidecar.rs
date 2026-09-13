@@ -76,7 +76,9 @@ pub struct SidecarEntry {
     pub section: Option<String>,
     /// The block excerpt.
     pub excerpt: Option<String>,
-    /// The reason (required on `out-of-scope`).
+    /// The reason: required on `out-of-scope`; optional on
+    /// `non-normative`, where it records why prose carries no rule and
+    /// closes the heuristic's question in `bokfell coverage lint`.
     pub reason: Option<String>,
     /// The tracking link (required on `planned`).
     pub tracking: Option<Tracking>,

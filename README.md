@@ -147,6 +147,7 @@ reviewed = true                          # untouched prose is normative, not unc
 
 [[non-normative]]
 section = "_a_note_on_terminology"       # a whole section by anchor
+reason = "defines terms, states no rule" # optional here: answers the lint's question
 
 [[out-of-scope]]
 excerpt = "the DocBook converter emits"  # a block by excerpt
