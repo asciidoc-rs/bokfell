@@ -111,6 +111,19 @@ Notes on the two states the interim design lacked:
   `uncovered`, and `bokfell coverage lint` (<<_cli_surface,§7>>) reports
   it, so pages drift toward fully classified over time.
 
+*Conflict precedence.* Claims and sidecar entries can target the same
+block; resolution is deterministic:
+
+* A claim on a `planned` block means the planned work shipped: the block
+  is *verified*, and `bokfell coverage lint`
+  (<<_cli_surface,§7>>) flags the now-stale `planned` entry for removal.
+* A claim on a `non-normative` or `out-of-scope` block is a
+  contradiction -- the test asserts a rule the sidecar says isn't there
+  (or isn't ours) -- and is a hard `scan` error naming both sources; a
+  human resolves it by fixing whichever is wrong.
+* A block targeted by more than one sidecar list (e.g. both
+  `non-normative` and `planned`) is a hard error when the sidecar loads.
+
 The headline metric is:
 
 ----
@@ -149,9 +162,20 @@ verifies!("<path>#<anchor>");                     // claim a whole section
 ----
 
 * *Path* is as written in the scanned repo (matching today's
-  `track_file!` convention). The tool resolves it by suffix-matching
-  against the catalog's source paths; ambiguity is a hard error fixed by
-  writing a longer path.
+  `track_file!` convention), and resolution is *scoped*, not global:
+  a claim resolves by suffix-matching against catalog pages sourced
+  from the same `coverage.scan` entry's repo as the test root -- tests
+  claim their own repo's spec pages by default, so identical paths in
+  other components never collide. A cross-repo claim names the page
+  with a full Antora-style resource ID
+  (`component:module:page.adoc`) instead of a path. Within that scope
+  the path identifies a *page*, not a version: the claim is resolved
+  against each measured version of the page independently, and the
+  excerpt decides per version -- versions whose block text matches are
+  verified; versions whose text has since diverged are simply
+  unmatched, which is not an error. Only a path matching no page in
+  scope, an excerpt matching *no* measured version, or an excerpt
+  ambiguous *within one version's page* is a hard error.
 * *Excerpt* is matched against the block's *source* text after
   whitespace normalization (the same collapse rules the search indexer
   uses) -- normalization collapses whitespace only, and inline markup is
@@ -273,9 +297,17 @@ Commands:
   persisted export. Unresolved or ambiguous excerpts are errors listed
   with file/line provenance.
 * `bokfell coverage report [--format table|json|codecov]` -- rollups.
-  `--format codecov` projects block states onto line ranges via the source
-  map and emits the interim tools' schema, so existing CI uploads swap
-  over without pipeline changes.
+  `--format codecov` projects block states onto line ranges via the
+  source map and emits the interim tools' schema, so existing CI
+  uploads swap over without pipeline changes. The projection rule is
+  explicit: every source line of a `verified` block emits `1`; every
+  source line of a `planned`, `uncovered`, or `unclassified` block
+  emits `0`; lines of `out-of-scope` and `non-normative` blocks, and
+  lines belonging to no block (blank lines, delimiters), are omitted --
+  so hit/miss/absent corresponds exactly to
+  in-denominator-covered / in-denominator-uncovered /
+  out-of-denominator, and the migration parity check
+  (<<_migration,§9>>) compares at this projection level.
 * `bokfell coverage lint` -- review affordances: unclassified blocks,
   sidecar entries the structural heuristic disagrees with (prime
   candidates for the out-of-scope vs non-normative cleanup,
@@ -303,7 +335,13 @@ Commands:
    it for non-GitHub hosts.
 ** _Serve mode:_ reuse the PLAN.md §9.3 edit round-trip verbatim -- "open
    test" posts to `/__bokfell/edit?file&line` and lands in the local
-   editor at the test function. Test roots join the editable allowlist.
+   editor at the test function. The affordance follows the edit loop's
+   locality rule: it is offered only when the claim's rust file resolves
+   inside a *local* source (a worktree, or a repo mapped with
+   `--local url=path`), whose resolved absolute path joins the editable
+   allowlist. Claims whose repo is cache-backed or remote-only render
+   the build-mode URL link instead -- a cached clone is never exposed to
+   the editor.
 * *Dashboard.* Per-page and per-component stacked bars over the five
   states, `out-of-scope` beside the bar, `unclassified` called out as the
   review queue.
