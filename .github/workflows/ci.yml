@@ -44,12 +44,41 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust_version }}
+          components: llvm-tools-preview
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Run tests
-        run: cargo test --workspace --all-features
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      # Runs the whole workspace test suite under source-based coverage
+      # instrumentation, so this step is the test run as well as the
+      # coverage measurement (a failing test fails the job). Integration
+      # test files under each crate's `tests/` directory are excluded from
+      # the report; inline `mod tests` blocks are stripped in the next step.
+      - name: Generate code coverage
+        run: cargo llvm-cov --workspace --all-features --lcov --ignore-filename-regex tests --output-path lcov.info
+
+      - name: Remove test code from coverage reports
+        uses: scouten/uncover-tests@v1
+
+      # Tokens aren't available for PRs originating from forks, so we upload
+      # coverage only for same-repo PRs (and non-PR events). We gate on the head
+      # repo rather than author_association: the latter misclassifies
+      # automation-authored same-repo PRs as CONTRIBUTOR and wrongly skips their
+      # uploads. Dependabot pushes its branches to this repo, so it is covered
+      # by the same-repo check too.
+      - name: Upload code coverage results
+        if: |
+          github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.filtered.info
+          fail_ci_if_error: true
+          verbose: true
 
   clippy:
     name: Clippy
