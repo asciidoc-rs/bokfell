@@ -5,9 +5,12 @@
 //! the binary; a theme directory can override the layout template per file
 //! (PLAN.md §5 — no Antora-style zip bundles).
 
+mod highlight;
+
 use std::path::Path;
 
 use bokfell_model::{relative_url, NavItem, NavTree};
+pub use highlight::highlight_rust_lines;
 use minijinja::{context, Environment};
 
 /// The embedded default layout template.

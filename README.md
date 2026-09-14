@@ -39,8 +39,9 @@ tests anywhere claim spec paragraphs with a no-op `verifies!` marker,
 per-page coverage maps classify what is non-normative, out of scope, or
 planned, and `bokfell coverage scan` resolves both into a block-level
 database that `build` renders as a verified-percentage badge, a
-five-state shading overlay with per-block detail and click-through to
-the verifying test, and a site-wide `/coverage.html` dashboard — with
+five-state shading overlay with per-block detail that inlines each
+verifying test function (syntax-highlighted, claim lines marked, with
+a link to the source), and a site-wide `/coverage.html` dashboard — with
 `report --format codecov` for CI uploads and `lint` for the review
 queue. (Pre-computed per-line JSON from the interim `sdd` tools still
 loads.)

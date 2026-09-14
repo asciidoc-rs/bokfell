@@ -841,6 +841,8 @@ mod tests {
                 local_path: None,
                 line,
                 test_fn: Some("t".into()),
+                fn_line: None,
+                fn_source: None,
                 krate: Some("parser".into()),
                 repo: None,
                 rev: None,

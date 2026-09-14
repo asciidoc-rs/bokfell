@@ -133,9 +133,11 @@ function bokfellPairByLine(annotatedLines, targetLines) {
 
   // Coverage (RFC 0001 §8): each block's entry is null (no block state)
   // or {s: state, r: reason, t: [tracking, url], c: [claims]} where a
-  // claim is {l: label, u: url, f: "file:line", e: [file, line]} — `e`
-  // only in serve mode for locally sourced tests. (A bare state string
-  // is accepted too.)
+  // claim is {l: label, f: "file:line", n: line, t: testIndex, u: url,
+  // e: [file, line]} — `e` only in serve mode for locally sourced tests.
+  // data.tests holds each distinct enclosing test function once:
+  // {f: file, l: firstLine, n: name, h: [highlighted line html…],
+  // u: url, e: [file, line]}. (A bare state string is accepted too.)
   wire(
     document.getElementById("bokfell-cov-toggle"),
     data.coverage,
@@ -274,29 +276,91 @@ function bokfellPairByLine(annotatedLines, targetLines) {
       : entry.s === "verified" ? "" : "No test claims this block.";
     if (heading.textContent) panel.appendChild(heading);
 
-    if (claims.length) {
-      var list = document.createElement("ul");
-      for (var i = 0; i < claims.length; i++) {
-        var claim = claims[i];
-        var item = document.createElement("li");
-        if (claim.u) {
-          var a = document.createElement("a");
-          a.href = claim.u;
-          a.textContent = claim.l;
-          item.appendChild(a);
-        } else {
-          item.appendChild(document.createTextNode(claim.l));
-        }
-        var site = document.createElement("span");
-        site.className = "cov-site";
-        site.textContent = claim.f;
-        item.appendChild(site);
-        if (claim.e) item.appendChild(openTestButton(claim.e[0], claim.e[1]));
-        list.appendChild(item);
+    // Group the claims by their enclosing test function so each function
+    // is inlined once, with every claim line inside it marked.
+    var tests = Array.isArray(data.tests) ? data.tests : [];
+    var groups = [];
+    var byTest = {};
+    for (var i = 0; i < claims.length; i++) {
+      var claim = claims[i];
+      var key = typeof claim.t === "number" ? "t" + claim.t : "c" + i;
+      if (!byTest[key]) {
+        byTest[key] = { test: typeof claim.t === "number" ? tests[claim.t] : null, claims: [] };
+        groups.push(byTest[key]);
       }
-      panel.appendChild(list);
+      byTest[key].claims.push(claim);
+    }
+    for (var g = 0; g < groups.length; g++) {
+      panel.appendChild(testSection(groups[g].test, groups[g].claims));
     }
     return panel;
+  }
+
+  // One enclosing test function: its label, the "go to test" link (and
+  // serve-mode "open test" button), and its highlighted source with the
+  // claim lines marked. Without the source, the bare label and link.
+  function testSection(test, claims) {
+    var section = document.createElement("div");
+    section.className = "cov-test";
+    var first = claims[0];
+
+    var head = document.createElement("p");
+    head.className = "cov-test-head";
+    var name = document.createElement("span");
+    name.className = "cov-fn";
+    name.textContent = first.l;
+    head.appendChild(name);
+    var site = document.createElement("span");
+    site.className = "cov-site";
+    site.textContent = test ? test.f + ":" + test.l : first.f;
+    head.appendChild(site);
+    var url = (test && test.u) || first.u;
+    if (url) {
+      var a = document.createElement("a");
+      a.href = url;
+      a.textContent = "go to test";
+      head.appendChild(a);
+    }
+    var edit = (test && test.e) || first.e;
+    if (edit) head.appendChild(openTestButton(edit[0], edit[1]));
+    section.appendChild(head);
+
+    if (!test || !Array.isArray(test.h)) return section;
+
+    var marked = {};
+    for (var i = 0; i < claims.length; i++) {
+      if (typeof claims[i].n === "number") marked[claims[i].n] = true;
+    }
+    var pre = document.createElement("pre");
+    pre.className = "cov-test-source";
+    var code = document.createElement("code");
+    var firstClaimLine = null;
+    for (var n = 0; n < test.h.length; n++) {
+      var lineNo = test.l + n;
+      var line = document.createElement("span");
+      line.className = "cov-line" + (marked[lineNo] ? " claim" : "");
+      var ln = document.createElement("span");
+      ln.className = "ln";
+      ln.textContent = String(lineNo);
+      line.appendChild(ln);
+      var body = document.createElement("span");
+      // Server-generated: escaped source text with class-only spans.
+      body.innerHTML = test.h[n];
+      line.appendChild(body);
+      code.appendChild(line);
+      if (marked[lineNo] && !firstClaimLine) firstClaimLine = line;
+    }
+    pre.appendChild(code);
+    section.appendChild(pre);
+
+    // Scroll the first claim line into view within the box.
+    if (firstClaimLine) {
+      window.requestAnimationFrame(function () {
+        var top = firstClaimLine.offsetTop - pre.clientHeight / 2;
+        pre.scrollTop = top > 0 ? top : 0;
+      });
+    }
+    return section;
   }
 
   // Serve mode: "open test" reuses the edit round-trip for the claim's

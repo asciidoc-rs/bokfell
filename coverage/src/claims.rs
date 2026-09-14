@@ -104,6 +104,8 @@ pub fn scan_test_root(root: &TestRoot) -> Result<Vec<Claim>, ScanError> {
             local_path: root.local.then(|| path.clone()),
             line: 0,
             test_fn: None,
+            fn_line: None,
+            fn_source: None,
             krate,
             repo: root.repo.clone(),
             rev: root.rev.clone(),
@@ -123,6 +125,7 @@ pub fn scan_source(text: &str, site: &ClaimSite) -> Result<Vec<Claim>, ScanError
     })?;
     let mut visitor = Visitor {
         site,
+        lines: text.lines().collect(),
         fn_stack: Vec::new(),
         claims: Vec::new(),
         error: None,
@@ -134,22 +137,81 @@ pub fn scan_source(text: &str, site: &ClaimSite) -> Result<Vec<Claim>, ScanError
     }
 }
 
+/// An enclosing function: its name and 1-based line span (attributes
+/// included).
+struct EnclosingFn {
+    name: String,
+    start: u32,
+    end: u32,
+}
+
 struct Visitor<'a> {
     site: &'a ClaimSite,
-    fn_stack: Vec<String>,
+    /// The source, by line, for extracting enclosing functions.
+    lines: Vec<&'a str>,
+    fn_stack: Vec<EnclosingFn>,
     claims: Vec<Claim>,
     error: Option<ScanError>,
 }
 
+impl Visitor<'_> {
+    /// The source text of `lines[start..=end]` (1-based), with the
+    /// indentation every non-blank line shares removed.
+    fn extract(&self, start: u32, end: u32) -> String {
+        let start = (start.max(1) - 1) as usize;
+        let end = (end as usize).min(self.lines.len());
+        let block = &self.lines[start.min(end)..end];
+        let indent = block
+            .iter()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| line.len() - line.trim_start().len())
+            .min()
+            .unwrap_or(0);
+        block
+            .iter()
+            .map(|line| {
+                if line.len() >= indent {
+                    &line[indent..]
+                } else {
+                    line.trim_start()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+/// The 1-based line span of a function item: from its first attribute
+/// (or its signature) to the closing brace of its body.
+fn fn_span(attrs: &[syn::Attribute], sig: &syn::Signature, block: &syn::Block) -> (u32, u32) {
+    let start = attrs
+        .first()
+        .map(|attr| attr.span().start().line)
+        .unwrap_or_else(|| sig.span().start().line)
+        .min(sig.fn_token.span.start().line);
+    let end = block.brace_token.span.close().end().line;
+    (start as u32, end as u32)
+}
+
 impl<'ast> Visit<'ast> for Visitor<'_> {
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        self.fn_stack.push(item.sig.ident.to_string());
+        let (start, end) = fn_span(&item.attrs, &item.sig, &item.block);
+        self.fn_stack.push(EnclosingFn {
+            name: item.sig.ident.to_string(),
+            start,
+            end,
+        });
         syn::visit::visit_item_fn(self, item);
         self.fn_stack.pop();
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        self.fn_stack.push(item.sig.ident.to_string());
+        let (start, end) = fn_span(&item.attrs, &item.sig, &item.block);
+        self.fn_stack.push(EnclosingFn {
+            name: item.sig.ident.to_string(),
+            start,
+            end,
+        });
         syn::visit::visit_impl_item_fn(self, item);
         self.fn_stack.pop();
     }
@@ -163,16 +225,21 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
         if is_verifies && self.error.is_none() {
             let line = mac.path.span().start().line as u32;
             match parse_invocation(mac) {
-                Ok((target, anchor, excerpt)) => self.claims.push(Claim {
-                    target,
-                    anchor,
-                    excerpt,
-                    site: ClaimSite {
-                        line,
-                        test_fn: self.fn_stack.last().cloned(),
-                        ..self.site.clone()
-                    },
-                }),
+                Ok((target, anchor, excerpt)) => {
+                    let enclosing = self.fn_stack.last();
+                    self.claims.push(Claim {
+                        target,
+                        anchor,
+                        excerpt,
+                        site: ClaimSite {
+                            line,
+                            test_fn: enclosing.map(|f| f.name.clone()),
+                            fn_line: enclosing.map(|f| f.start),
+                            fn_source: enclosing.map(|f| self.extract(f.start, f.end)),
+                            ..self.site.clone()
+                        },
+                    })
+                }
                 Err(message) => {
                     self.error = Some(ScanError::Invocation {
                         file: self.site.file.clone(),
@@ -311,6 +378,8 @@ mod tests {
             local_path: None,
             line: 0,
             test_fn: None,
+            fn_line: None,
+            fn_source: None,
             krate: Some("asciidoc-html5".to_string()),
             repo: None,
             rev: None,
@@ -366,6 +435,26 @@ verifies!("component:module:page.adoc", "cross repo");
             Some("nested_ordered_markers")
         );
         assert_eq!(claims[0].label(), "asciidoc-html5::nested_ordered_markers");
+
+        // The enclosing function is captured whole (attribute to closing
+        // brace) with the module's indentation stripped.
+        assert_eq!(claims[0].site.fn_line, Some(5));
+        let source = claims[0].site.fn_source.as_deref().unwrap();
+        assert!(
+            source.starts_with("#[test]\nfn nested_ordered_markers() {"),
+            "{source}"
+        );
+        assert!(source.ends_with("    }\n}"), "{source}");
+        assert!(source.contains("\n    verifies!(\n"), "{source}");
+        assert_eq!(claims[1].site.fn_source, claims[0].site.fn_source);
+        assert_eq!(claims[2].site.fn_line, Some(21));
+        assert!(claims[2]
+            .site
+            .fn_source
+            .as_deref()
+            .unwrap()
+            .starts_with("fn method() {"));
+        assert_eq!(claims[3].site.fn_source, None);
 
         assert_eq!(claims[1].anchor.as_deref(), Some("_intro"));
         assert_eq!(claims[1].excerpt.as_deref(), Some("scoped excerpt"));

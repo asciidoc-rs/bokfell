@@ -429,9 +429,11 @@ interim markers conflated:
   source map for the Codecov export (`bokfell coverage report --format
   codecov`), which keeps the interim tools' CI uploads unchanged.
 - **Presentation.** (a) A per-page overlay toggle with the five-state
-  palette, a per-block detail panel (state, reason or ticket, claims), and
-  click-through to the verifying test (a templated repository URL, or the
-  §9.3 edit round-trip in `serve` for locally sourced tests); (b) per-page
+  palette and a per-block detail panel (state, reason or ticket) that
+  inlines each verifying test function — highlighted at build time with
+  `syntect`, claim lines marked — with a "go to test" link (a templated
+  repository URL) or the §9.3 edit round-trip in `serve` for locally
+  sourced tests; (b) per-page
   and per-component rollups; (c) the site-wide `/coverage.html` dashboard
   with stacked bars and out-of-scope shown beside them; (d) optional
   page-status front-matter (draft/reviewed/known-good) folded into the

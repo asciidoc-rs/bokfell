@@ -320,6 +320,12 @@ pub fn scan(
 /// `coverage.link_template`, else the GitHub blob URL when the claim's
 /// repository is on GitHub; `None` when neither applies.
 pub fn claim_url(claim: &Claim, template: Option<&str>) -> Option<String> {
+    claim_url_at(claim, claim.site.line, template)
+}
+
+/// [`claim_url`] pointing at another line of the claim's file (the
+/// enclosing test function's first line, for the inlined source).
+pub fn claim_url_at(claim: &Claim, line: u32, template: Option<&str>) -> Option<String> {
     let repo = claim.site.repo.as_deref()?;
     let rev = claim.site.rev.as_deref()?;
     let slug = github_slug(repo);
@@ -330,12 +336,12 @@ pub fn claim_url(claim: &Claim, template: Option<&str>) -> Option<String> {
                 .replace("{repo_url}", repo)
                 .replace("{rev}", rev)
                 .replace("{path}", &claim.site.file)
-                .replace("{line}", &claim.site.line.to_string()),
+                .replace("{line}", &line.to_string()),
         ),
         None => slug.map(|slug| {
             format!(
-                "https://github.com/{slug}/blob/{rev}/{}#L{}",
-                claim.site.file, claim.site.line
+                "https://github.com/{slug}/blob/{rev}/{}#L{line}",
+                claim.site.file
             )
         }),
     }
@@ -368,6 +374,8 @@ mod tests {
                 local_path: None,
                 line: 42,
                 test_fn: None,
+                fn_line: None,
+                fn_source: None,
                 krate: None,
                 repo: repo.map(str::to_string),
                 rev: rev.map(str::to_string),

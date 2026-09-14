@@ -880,10 +880,13 @@ fn diff_view(page: &RenderedPage) -> Option<DiffView> {
 /// Builds the combined client overlay payload: the block-pairing
 /// selector plus per-block arrays for the overlays this page carries —
 /// coverage entries (`{s: state, r: reason, t: [tracking, url], c:
-/// [claims]}`, each claim `{l: label, u: url, f: "file:line", e: [file,
-/// line]}` with `e` only in serve mode for local test files), diff
-/// changes (`null` unchanged, `"added"`, or `["edited", word_diff_html]`),
-/// and (in serve mode) edit targets (`[file, line]` per block). `<` is
+/// [claims]}`, each claim `{l: label, f: "file:line", n: line, t:
+/// test index, u: url, e: [file, line]}` with `e` only in serve mode for
+/// local test files) and a `tests` table holding each distinct
+/// enclosing test function once (`{f: file, l: first line, n: name, h:
+/// [highlighted line html], u: url, e: [file, line]}`), diff changes
+/// (`null` unchanged, `"added"`, or `["edited", word_diff_html]`), and
+/// (in serve mode) edit targets (`[file, line]` per block). `<` is
 /// escaped so the JSON embeds safely in a `<script>` element.
 fn overlay_json(
     page: &RenderedPage,
@@ -891,6 +894,40 @@ fn overlay_json(
     link_template: Option<&str>,
     edit: bool,
 ) -> Option<String> {
+    // The test functions this page's claims sit in, deduplicated by
+    // file and start line, highlighted once each.
+    let mut tests: Vec<serde_json::Value> = Vec::new();
+    let mut test_index: std::collections::HashMap<(String, u32), usize> =
+        std::collections::HashMap::new();
+    let mut test_entry = |claim: &bokfell_coverage::Claim| -> Option<usize> {
+        let (fn_line, source) = (claim.site.fn_line?, claim.site.fn_source.as_deref()?);
+        let key = (claim.site.file.clone(), fn_line);
+        if let Some(&index) = test_index.get(&key) {
+            return Some(index);
+        }
+        let mut t = serde_json::Map::new();
+        t.insert("f".into(), serde_json::json!(claim.site.file));
+        t.insert("l".into(), serde_json::json!(fn_line));
+        t.insert("n".into(), serde_json::json!(claim.site.test_fn));
+        t.insert(
+            "h".into(),
+            serde_json::json!(bokfell_theme::highlight_rust_lines(source)),
+        );
+        if let Some(url) = coverage::claim_url_at(claim, fn_line, link_template) {
+            t.insert("u".into(), serde_json::json!(url));
+        }
+        if let (true, Some(path)) = (edit, &claim.site.local_path) {
+            t.insert(
+                "e".into(),
+                serde_json::json!([path.display().to_string(), fn_line]),
+            );
+        }
+        let index = tests.len();
+        tests.push(serde_json::Value::Object(t));
+        test_index.insert(key, index);
+        Some(index)
+    };
+
     let coverage = page.coverage.as_ref().map(|cov| {
         serde_json::json!(cov
             .blocks
@@ -919,6 +956,10 @@ fn overlay_json(
                                     claim.site.file, claim.site.line
                                 )),
                             );
+                            c.insert("n".into(), serde_json::json!(claim.site.line));
+                            if let Some(index) = test_entry(claim) {
+                                c.insert("t".into(), serde_json::json!(index));
+                            }
                             if let Some(url) = coverage::claim_url(claim, link_template) {
                                 c.insert("u".into(), serde_json::json!(url));
                             }
@@ -984,6 +1025,9 @@ fn overlay_json(
     payload.insert("lines".to_string(), serde_json::json!(page.block_lines));
     if let Some(coverage) = coverage {
         payload.insert("coverage".to_string(), coverage);
+    }
+    if !tests.is_empty() {
+        payload.insert("tests".to_string(), serde_json::Value::Array(tests));
     }
     if let Some(diff) = diff {
         payload.insert("diff".to_string(), diff);

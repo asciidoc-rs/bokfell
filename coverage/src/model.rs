@@ -141,6 +141,14 @@ pub struct ClaimSite {
     /// The enclosing test function's name, when the invocation sits in
     /// one.
     pub test_fn: Option<String>,
+    /// The 1-based line the enclosing function starts at (its first
+    /// attribute), when the invocation sits in one.
+    #[serde(default)]
+    pub fn_line: Option<u32>,
+    /// The enclosing function's source text, attributes included and
+    /// common indentation removed — what the overlay inlines.
+    #[serde(default)]
+    pub fn_source: Option<String>,
     /// The enclosing crate's package name, when a `Cargo.toml` was found.
     pub krate: Option<String>,
     /// The repository the file came from (URL or local path as

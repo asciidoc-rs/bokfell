@@ -105,6 +105,17 @@ fn scans_reports_lints_and_builds_the_dogfood_site() {
         "no claim labels"
     );
 
+    // Each claim's enclosing test function is inlined once, highlighted.
+    assert!(page.contains("\"tests\":["), "no tests table");
+    assert!(
+        page.contains("class=\\\"support macro\\\">verifies!"),
+        "test source not highlighted"
+    );
+    assert!(
+        page.contains("\"n\":\"scans_reports_lints_and_builds_the_dogfood_site\""),
+        "this test's function missing"
+    );
+
     let dashboard = std::fs::read_to_string(site.join("coverage.html")).unwrap();
     assert!(dashboard.contains("class=\"cov-bar\""), "no stacked bar");
     assert!(

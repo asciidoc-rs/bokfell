@@ -543,6 +543,100 @@ span.cov-high, span.cov-mid, span.cov-low {
   cursor: pointer;
 }
 
+/* The inlined test source: numbered lines, the claim's line marked, and
+   a class-based token palette (syntect "spaced" classes) that follows
+   the color scheme. */
+.doc .bokfell-cov-detail .cov-test {
+  margin: 0.5rem 0 0.8rem;
+}
+
+.doc .bokfell-cov-detail .cov-test-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0 0 0.3rem;
+}
+
+.doc .bokfell-cov-detail .cov-test-head .cov-fn { font-weight: 600; }
+
+.doc .bokfell-cov-detail pre.cov-test-source {
+  margin: 0;
+  padding: 0.5rem 0;
+  max-height: 24rem;
+  overflow: auto;
+  font-size: 0.85em;
+  line-height: 1.45;
+  background: var(--bf-code-bg);
+  border: 1px solid var(--bf-border);
+  border-radius: 6px;
+}
+
+.doc .bokfell-cov-detail pre.cov-test-source code { display: block; }
+
+.doc .bokfell-cov-detail .cov-line {
+  display: block;
+  padding: 0 0.75rem 0 0;
+  white-space: pre;
+}
+
+.doc .bokfell-cov-detail .cov-line .ln {
+  display: inline-block;
+  width: 3.2em;
+  padding-right: 0.8em;
+  text-align: right;
+  color: var(--bf-muted);
+  user-select: none;
+}
+
+.doc .bokfell-cov-detail .cov-line.claim {
+  background: rgba(47, 158, 68, 0.14);
+  box-shadow: inset 3px 0 0 #2f9e44;
+}
+
+.doc .bokfell-cov-detail .cov-line.claim .ln { color: #2f9e44; font-weight: 600; }
+
+:root {
+  --bf-tok-comment: #6a737d;
+  --bf-tok-keyword: #a626a4;
+  --bf-tok-string: #50a14f;
+  --bf-tok-number: #986801;
+  --bf-tok-function: #4078f2;
+  --bf-tok-type: #c18401;
+  --bf-tok-macro: #0184bc;
+  --bf-tok-attribute: #6a737d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bf-tok-comment: #8b949e;
+    --bf-tok-keyword: #c678dd;
+    --bf-tok-string: #98c379;
+    --bf-tok-number: #d19a66;
+    --bf-tok-function: #61afef;
+    --bf-tok-type: #e5c07b;
+    --bf-tok-macro: #56b6c2;
+    --bf-tok-attribute: #8b949e;
+  }
+}
+
+.cov-test-source .comment { color: var(--bf-tok-comment); font-style: italic; }
+.cov-test-source .keyword,
+.cov-test-source .storage { color: var(--bf-tok-keyword); }
+.cov-test-source .string { color: var(--bf-tok-string); }
+.cov-test-source .constant { color: var(--bf-tok-number); }
+.cov-test-source .entity.name.function,
+.cov-test-source .support.function { color: var(--bf-tok-function); }
+.cov-test-source .entity.name.type,
+.cov-test-source .storage.type,
+.cov-test-source .support.type { color: var(--bf-tok-type); }
+.cov-test-source .storage.type.function { color: var(--bf-tok-keyword); }
+.cov-test-source .support.macro,
+.cov-test-source .entity.name.macro { color: var(--bf-tok-macro); }
+.cov-test-source .meta.annotation,
+.cov-test-source .variable.annotation { color: var(--bf-tok-attribute); }
+.cov-test-source .punctuation { color: inherit; }
+
 .cov-verified { color: #2f9e44; }
 .cov-planned { color: #cd8b12; }
 .cov-uncovered, .cov-unclassified { color: #e03131; }
