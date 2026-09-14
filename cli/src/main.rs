@@ -894,14 +894,15 @@ fn overlay_json(
     link_template: Option<&str>,
     edit: bool,
 ) -> Option<String> {
-    // The test functions this page's claims sit in, deduplicated by
-    // file and start line, highlighted once each.
+    // The test functions this page's claims sit in, highlighted once
+    // each. Two repositories can hold the same relative file, so the
+    // identity is the claim's scan scope plus file plus start line.
     let mut tests: Vec<serde_json::Value> = Vec::new();
-    let mut test_index: std::collections::HashMap<(String, u32), usize> =
+    let mut test_index: std::collections::HashMap<(usize, String, u32), usize> =
         std::collections::HashMap::new();
     let mut test_entry = |claim: &bokfell_coverage::Claim| -> Option<usize> {
         let (fn_line, source) = (claim.site.fn_line?, claim.site.fn_source.as_deref()?);
-        let key = (claim.site.file.clone(), fn_line);
+        let key = (claim.site.scope, claim.site.file.clone(), fn_line);
         if let Some(&index) = test_index.get(&key) {
             return Some(index);
         }
