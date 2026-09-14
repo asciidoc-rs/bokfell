@@ -353,10 +353,16 @@ function bokfellPairByLine(annotatedLines, targetLines) {
     pre.appendChild(code);
     section.appendChild(pre);
 
-    // Scroll the first claim line into view within the box.
+    // Scroll the box so the first claim line sits about a third of the
+    // way down, with its context above. Measured against the box itself
+    // (offsetTop would be relative to some positioned ancestor).
     if (firstClaimLine) {
       window.requestAnimationFrame(function () {
-        var top = firstClaimLine.offsetTop - pre.clientHeight / 2;
+        var lineTop =
+          firstClaimLine.getBoundingClientRect().top -
+          pre.getBoundingClientRect().top +
+          pre.scrollTop;
+        var top = lineTop - pre.clientHeight / 3;
         pre.scrollTop = top > 0 ? top : 0;
       });
     }
