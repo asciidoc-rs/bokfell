@@ -436,24 +436,26 @@ verifies!("component:module:page.adoc", "cross repo");
         );
         assert_eq!(claims[0].label(), "asciidoc-html5::nested_ordered_markers");
 
-        // The enclosing function is captured whole (attribute to closing
-        // brace) with the module's indentation stripped.
+        // The enclosing function is captured whole, attribute to closing
+        // brace. Its raw string continues at column 0, so no common
+        // indentation can be stripped without altering the string.
         assert_eq!(claims[0].site.fn_line, Some(5));
         let source = claims[0].site.fn_source.as_deref().unwrap();
         assert!(
-            source.starts_with("#[test]\nfn nested_ordered_markers() {"),
+            source.starts_with("    #[test]\n    fn nested_ordered_markers() {"),
             "{source}"
         );
-        assert!(source.ends_with("    }\n}"), "{source}");
-        assert!(source.contains("\n    verifies!(\n"), "{source}");
+        assert!(source.contains("\nof nesting.\"#"), "{source}");
+        assert!(source.ends_with("        }\n    }"), "{source}");
         assert_eq!(claims[1].site.fn_source, claims[0].site.fn_source);
+
+        // The method's indentation is common to every line and is
+        // stripped.
         assert_eq!(claims[2].site.fn_line, Some(21));
-        assert!(claims[2]
-            .site
-            .fn_source
-            .as_deref()
-            .unwrap()
-            .starts_with("fn method() {"));
+        assert_eq!(
+            claims[2].site.fn_source.as_deref(),
+            Some("fn method() {\n    verifies!(\"docs/modules/ROOT/pages/x.adoc#_whole\");\n}")
+        );
         assert_eq!(claims[3].site.fn_source, None);
 
         assert_eq!(claims[1].anchor.as_deref(), Some("_intro"));
