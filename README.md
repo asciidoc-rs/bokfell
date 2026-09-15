@@ -36,10 +36,18 @@ watching dev server with live browser reload (~150 ms rebuilds on a
 37-page site). Content sources can be git repositories: matched branches
 and tags become component versions (bare cache clones, no checkouts),
 with Antora's version ordering, latest-version routing, and a per-page
-version selector. Spec-coverage overlays work end to end: per-line
-coverage JSON (from a tool like asciidoc-rs's `sdd`) becomes a
-verified-percentage badge on each covered page, a click-to-toggle
-per-block shading overlay, and a site-wide `/coverage.html` dashboard.
+version selector. Spec coverage works end to end, second-generation
+design ([RFC 0001](docs/modules/rfcs/pages/0001-spec-coverage.adoc)):
+tests anywhere claim spec paragraphs with a no-op `verifies!` marker,
+per-page coverage maps classify what is non-normative, out of scope, or
+planned, and `bokfell coverage scan` resolves both into a block-level
+database that `build` renders as a verified-percentage badge, a
+five-state shading overlay with per-block detail that inlines each
+verifying test function (syntax-highlighted, claim lines marked, with
+a link to the source), and a site-wide `/coverage.html` dashboard — with
+`report --format codecov` for CI uploads and `lint` for the review
+queue. (Pre-computed per-line JSON from the interim `sdd` tools still
+loads.)
 Diff views work end to end too: each versioned page diffs against its
 previous version (or against a git ref with `--diff-base`, previewing a
 working tree or PR branch), changed pages get a "Changed since X" badge
@@ -69,7 +77,7 @@ cargo run --bin bokfell -- serve     # http://127.0.0.1:8000/, live reload
 
 Edit anything under `examples/hello-bokfell/docs/` while `serve` runs and
 the browser reloads with the change. The home page also demos the
-spec-coverage overlay: click its "60% verified" badge to shade each block
+spec-coverage overlay: click its "verified" badge to shade each block
 by verification status. And after editing a page, rebuild with
 `cargo run --bin bokfell -- build --diff-base main` — every page you
 changed gets a "Changed since main" badge that highlights exactly what
@@ -94,7 +102,7 @@ content:
       tags: ['asciidoc-html5-v*']
       start_path: docs
       version_from_ref: true
-      coverage:                      # optional spec-coverage JSON
+      coverage:                      # optional pre-computed coverage JSON
         - spec-coverage.json         # (per-line, Codecov-style; see PLAN.md)
 output:
   dir: build/site
@@ -114,6 +122,64 @@ For a live-reloading preview while editing:
 ```sh
 bokfell serve            # http://127.0.0.1:8000/, --port to change
 ```
+
+## Spec coverage
+
+To measure a spec site against its implementation's tests, add a
+`coverage:` section naming the repositories to scan (RFC 0001 §7). Claims
+live in test code as a no-op marker any repository can define — no
+dependency on Bokfell:
+
+```rust
+macro_rules! verifies { ($($tt:tt)*) => {}; }
+
+#[test]
+fn nested_ordered_markers() {
+    verifies!(
+        "docs/modules/lists/pages/ordered.adoc",
+        "To nest an ordered list, add a marker character for each level of nesting."
+    );
+    // ... the actual test ...
+}
+```
+
+Classification lives with the implementation, one optional TOML sidecar
+per spec page under a `spec_map` root (`spec-map/<page path>.toml`):
+
+```toml
+reviewed = true                          # untouched prose is normative, not unclassified
+
+[[non-normative]]
+section = "_a_note_on_terminology"       # a whole section by anchor
+reason = "defines terms, states no rule" # optional here: answers the lint's question
+
+[[out-of-scope]]
+excerpt = "the DocBook converter emits"  # a block by excerpt
+reason = "HTML5 only; no DocBook backend planned"
+
+[[planned]]
+excerpt = "Footnotes may be defined once and reused"
+tracking = "asciidoc-rs/asciidoc-html5#341"
+```
+
+```yaml
+coverage:
+  scan:
+    - repo: https://github.com/asciidoc-rs/asciidoc-html5   # or `path: .` for a worktree
+      tests: [html5/src/tests, cli/src/tests]
+      spec_map: spec-map
+```
+
+```sh
+bokfell coverage scan                    # resolve claims + maps → build/coverage.json
+bokfell coverage report                  # rollup table (--format json|codecov)
+bokfell coverage lint                    # unclassified blocks, stale entries, disagreements
+bokfell build                            # pages and dashboard read the database directly
+```
+
+This repository is its own first user: `bokfell.yml` at the root builds
+Bokfell's docs and measures RFC 0001 against the workspace's tests (see
+the `Spec coverage` CI job).
 
 ## Guides
 

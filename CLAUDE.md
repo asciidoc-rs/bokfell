@@ -16,7 +16,17 @@ preview/editing.
 founding plan: goals and non-goals, the adopted Antora content model, the
 lessons taken from Zola, the verified `asciidoc-parser`/`asciidoc-html5`
 integration seams, the designs for the three differentiators, and the
-milestone order.
+milestone order. Design RFCs live in Bokfell's own docs component
+(`docs/modules/rfcs/pages/`); RFC 0001 specifies the spec-coverage
+engine and supersedes PLAN.md §9.2's data contract.
+
+**This repository dogfoods itself.** `bokfell.yml` at the root builds the
+`docs/` component and measures the RFC pages against the workspace's
+tests: tests claim RFC paragraphs with the no-op `verifies!` marker, and
+`spec-map/` holds the per-page coverage maps. `cargo run -- coverage
+scan` must stay error-free (CI runs it): when you change RFC wording,
+update the claims and sidecar entries that quote it, and when you
+implement an RFC rule, claim its paragraph from the test that verifies it.
 
 A Cargo workspace; directory → package:
 
@@ -34,8 +44,10 @@ A Cargo workspace; directory → package:
   overrides.
 - `diff/` — `bokfell-diff`: AsciiDoc-aware structural diff (kept
   generator-independent).
-- `coverage/` — `bokfell-coverage`: spec-coverage ingestion and overlay
-  model.
+- `coverage/` — `bokfell-coverage`: the spec-coverage engine (RFC 0001):
+  `syn`-based `verifies!` claim scanning, coverage-map sidecars, block
+  state resolution, rollups, Codecov export; plus the interim per-line
+  reader.
 - `serve/` — `bokfell-serve`: dev server (watcher, incremental rebuilds,
   livereload, edit API).
 - `search/` — `bokfell-search`: static search-index generation.

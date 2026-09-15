@@ -131,6 +131,42 @@ jobs:
       - name: Run theme client tests
         run: node --test theme/tests/*.test.js
 
+  coverage:
+    name: Spec coverage
+    if: |
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository ||
+      contains(github.event.pull_request.labels.*.name, 'safe to test')
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      # Dogfood: the spec-coverage engine (RFC 0001) measures Bokfell's
+      # own RFC page against the workspace's `verifies!` claims and the
+      # coverage maps under spec-map/. `scan` fails on any claim or
+      # sidecar entry that no longer resolves (spec drift), `lint` on
+      # contradictions; the report is the human-readable rollup.
+      - name: Scan claims and coverage maps
+        run: cargo run --locked -- coverage scan
+
+      - name: Report
+        run: cargo run --locked -- coverage report
+
+      - name: Lint
+        run: cargo run --locked -- coverage lint
+
+      - name: Build the dogfood site
+        run: cargo run --locked -- build
+
   fmt:
     name: Rustfmt
     if: |

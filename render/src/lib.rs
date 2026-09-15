@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use asciidoc_parser::{parser::HtmlInlineRenderer, Parser, SafeMode};
 pub use blockmap::client_selector as overlay_client_selector;
-use bokfell_coverage::{CoverageScope, PageCoverage};
+use bokfell_coverage::{CoverageDatabase, CoverageScope, MeasuredPage, PageCoverage, SpecBlock};
 use bokfell_diff::{diff_blocks, BlockChange};
 use bokfell_model::{
     relative_url, Component, ContentCatalog, Coords, Family, NavTree, VirtualFile,
@@ -153,6 +153,7 @@ pub struct Pipeline {
     catalog: Arc<ContentCatalog>,
     site_attrs: Vec<(String, Option<String>)>,
     coverage: Vec<CoverageScope>,
+    database: Option<Arc<CoverageDatabase>>,
     diff_base: Option<DiffBase>,
 }
 
@@ -191,6 +192,7 @@ impl Pipeline {
             catalog: Arc::new(catalog),
             site_attrs,
             coverage: Vec::new(),
+            database: None,
             diff_base: None,
         }
     }
@@ -202,12 +204,48 @@ impl Pipeline {
         self
     }
 
-    /// Supplies spec-coverage data (PLAN.md §9.2), one scope per content
-    /// source: a page reads only the scopes that cover its own component
-    /// version, first hit wins.
+    /// Supplies pre-computed per-line spec-coverage data (PLAN.md §9.2's
+    /// interim format), one scope per content source: a page reads only
+    /// the scopes that cover its own component version, first hit wins.
+    /// A resolved [`CoverageDatabase`] record for the page takes
+    /// precedence.
     pub fn with_coverage(mut self, coverage: Vec<CoverageScope>) -> Self {
         self.coverage = coverage;
         self
+    }
+
+    /// Supplies the resolved coverage database (RFC 0001): every page it
+    /// records renders with that record's block states.
+    pub fn with_coverage_database(mut self, database: Arc<CoverageDatabase>) -> Self {
+        self.database = Some(database);
+        self
+    }
+
+    /// Parses the pages the coverage engine should measure and returns
+    /// their blocks (RFC 0001 §2): `locate` maps a page file to its
+    /// repository-relative path and `coverage.scan` scope, or `None` to
+    /// leave it unmeasured.
+    pub fn measure_pages(
+        &self,
+        locate: impl Fn(&VirtualFile) -> Option<(String, usize)>,
+    ) -> Result<Vec<MeasuredPage>, RenderError> {
+        let mut measured = Vec::new();
+        let page_files: Vec<VirtualFile> = self.catalog.files_of(Family::Page).cloned().collect();
+        for file in &page_files {
+            let Some((repo_path, scope)) = locate(file) else {
+                continue;
+            };
+            let page = self.parse_page(file)?;
+            measured.push(MeasuredPage {
+                coords: page.coords.clone(),
+                url: page.url.clone(),
+                repo_path,
+                scope,
+                blocks: self.spec_blocks(&page),
+                section_ids: blockmap::section_ids(&page.document),
+            });
+        }
+        Ok(measured)
     }
 
     /// The catalog the pipeline renders from.
@@ -416,27 +454,20 @@ impl Pipeline {
         Ok(tree)
     }
 
-    /// Computes a page's coverage: its line data (found under the first
-    /// matching prefix) projected onto the page's overlay blocks.
+    /// The page's blocks as the coverage engine sees them: the overlay
+    /// blocks with their page-file line spans.
     ///
-    /// Coverage lines refer to the page's own file, while block spans are
-    /// preprocessed-source lines; a block spliced in by `include::` is
-    /// translated out via the source map (its lines belong to another
-    /// file's coverage). A block that merely *follows* an include keeps
-    /// its translated top-level line.
-    fn page_coverage(&self, page: &ParsedPage) -> Option<PageCoverage> {
-        let lines = self.coverage.iter().find_map(|scope| {
-            if !scope.applies_to(&page.coords.component, page.coords.version.as_deref()) {
-                return None;
-            }
-            scope.data.page_lines(&scope.prefix, &page.coords)
-        })?;
-
+    /// Block spans are preprocessed-source lines; a block spliced in by
+    /// `include::` is translated out via the source map (its lines belong
+    /// to another file) and carries no page lines. A block that merely
+    /// *follows* an include keeps its translated top-level line.
+    fn spec_blocks(&self, page: &ParsedPage) -> Vec<SpecBlock> {
         let source_map = page.document.source_map();
-        let spans: Vec<(u32, u32)> = blockmap::overlay_blocks(&page.document)
-            .iter()
+        blockmap::overlay_blocks(&page.document)
+            .into_iter()
             .map(|block| {
-                match source_map.original_file_and_line(block.start_line as usize) {
+                let page_lines = match source_map.original_file_and_line(block.start_line as usize)
+                {
                     // Top-level content — the map reports the page's own
                     // file (its `primary_file_name`, or `None` when no
                     // name was set): use the translated line.
@@ -444,16 +475,43 @@ impl Pipeline {
                         if origin.0.is_none()
                             || origin.0.as_deref() == Some(&page.primary_file_name) =>
                     {
-                        (origin.1 as u32, block.line_count)
+                        Some((origin.1 as u32, block.line_count))
                     }
-                    // Include-origin content (or unmapped): no lines of
-                    // this page's coverage apply — line 0 never matches.
-                    _ => (0, 0),
+                    // Include-origin content (or unmapped): none of this
+                    // page's lines apply.
+                    _ => None,
+                };
+                SpecBlock {
+                    context: block.unit.kind,
+                    text: block.unit.text,
+                    start_line: block.start_line,
+                    line_count: block.line_count,
+                    page_lines,
+                    sections: block.sections,
+                    kind: block.kind,
                 }
             })
-            .collect();
+            .collect()
+    }
 
-        Some(PageCoverage::from_lines(lines, &spans))
+    /// Computes a page's coverage: the resolved database record when the
+    /// page is measured, else its pre-computed line data (found under the
+    /// first matching scope) projected onto the page's blocks.
+    fn page_coverage(&self, page: &ParsedPage) -> Option<PageCoverage> {
+        if let Some(record) = self.database.as_ref().and_then(|db| db.page(&page.coords)) {
+            return Some(record.coverage.clone());
+        }
+
+        let lines = self.coverage.iter().find_map(|scope| {
+            if !scope.applies_to(&page.coords.component, page.coords.version.as_deref()) {
+                return None;
+            }
+            scope.data.page_lines(&scope.prefix, &page.coords)
+        })?;
+        Some(PageCoverage::from_legacy_lines(
+            lines,
+            &self.spec_blocks(page),
+        ))
     }
 
     /// Computes one page's diff against the configured base: the base

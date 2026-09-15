@@ -1,0 +1,8 @@
+# The Bokfell documentation component: the site's own docs, built and
+# measured by the tool itself (`bokfell build` / `bokfell coverage scan`
+# from the repository root).
+name: bokfell
+title: Bokfell
+version: ~
+nav:
+  - modules/ROOT/nav.adoc

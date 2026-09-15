@@ -114,6 +114,9 @@ pub struct CollectedRoot {
     pub version_override: Option<String>,
     /// The ref this root came from (for messages).
     pub refname: String,
+    /// The commit the ref resolved to (hex object id) — the revision
+    /// provenance records point at.
+    pub commit: String,
 }
 
 /// The aggregator: owns the cache location and fetch policy.
@@ -200,6 +203,7 @@ impl Aggregator {
                 path,
                 version_override,
                 refname,
+                commit: commit_id.to_string(),
             });
         }
         Ok(roots)
@@ -338,6 +342,138 @@ impl Aggregator {
         }
         unreachable!("the retry loop returns on every path");
     }
+}
+
+/// What a local directory's enclosing git repository says about it:
+/// provenance for content read straight from a worktree.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LocalRepoInfo {
+    /// The repository's root (the directory holding `.git`).
+    pub root: PathBuf,
+    /// The default fetch remote's URL, when configured.
+    pub remote_url: Option<String>,
+    /// The commit `HEAD` points at (hex object id), when any.
+    pub head: Option<String>,
+}
+
+/// Discovers the git repository enclosing `path` (the directory itself
+/// or any ancestor); `None` when there is none.
+pub fn local_repo_info(path: &Path) -> Option<LocalRepoInfo> {
+    let repo = gix::discover(path).ok()?;
+    let root = repo
+        .workdir()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| repo.git_dir().to_path_buf());
+    let remote_url = repo
+        .find_default_remote(gix::remote::Direction::Fetch)
+        .and_then(|remote| remote.ok())
+        .and_then(|remote| {
+            remote
+                .url(gix::remote::Direction::Fetch)
+                .map(|url| url.to_bstring().to_string())
+        });
+    let head = repo.head_id().ok().map(|id| id.to_string());
+    Some(LocalRepoInfo {
+        root,
+        remote_url,
+        head,
+    })
+}
+
+/// Whether the working-tree file at `path` (relative to the repository
+/// root, `/`-separated) is byte-identical to the blob `HEAD` records for
+/// it: `Some(true)` when it is, `Some(false)` when it differs or is
+/// untracked, `None` when the repository cannot be read.
+pub fn file_matches_head(repo_root: &Path, path: &str) -> Option<bool> {
+    let repo = gix::open(repo_root).ok()?;
+    let disk = std::fs::read(repo_root.join(path)).ok()?;
+    let head = repo.head_commit().ok()?;
+    let tree = head.tree().ok()?;
+    let Some(entry) = tree.lookup_entry_by_path(path).ok()? else {
+        return Some(false);
+    };
+    let object = entry.object().ok()?;
+    Some(object.data == disk)
+}
+
+impl Aggregator {
+    /// Reads one file of a repository at a named ref (branch first, then
+    /// tag), without exporting anything: `Ok(None)` when the ref has no
+    /// such file.
+    pub fn read_blob(
+        &self,
+        source: &GitSource,
+        refname: &str,
+        path: &str,
+    ) -> Result<Option<Vec<u8>>, AggregateError> {
+        let repo = self.open_or_clone(&source.url)?;
+        let as_error = |message: String| AggregateError::Repo {
+            url: source.url.clone(),
+            message,
+        };
+        let commit_id = resolve_refname(&repo, source, refname)?;
+        let tree = repo
+            .find_object(commit_id)
+            .map_err(|e| as_error(e.to_string()))?
+            .try_into_commit()
+            .map_err(|e| as_error(e.to_string()))?
+            .tree()
+            .map_err(|e| as_error(e.to_string()))?;
+        let Some(entry) = tree
+            .lookup_entry_by_path(path)
+            .map_err(|e| as_error(e.to_string()))?
+        else {
+            return Ok(None);
+        };
+        if !matches!(
+            entry.mode().kind(),
+            gix::object::tree::EntryKind::Blob | gix::object::tree::EntryKind::BlobExecutable
+        ) {
+            return Ok(None);
+        }
+        let object = entry.object().map_err(|e| as_error(e.to_string()))?;
+        Ok(Some(object.data.clone()))
+    }
+}
+
+/// Resolves a literal ref name the way [`Aggregator::collect_ref`] does:
+/// as a branch (`HEAD` included) first, then as a tag.
+fn resolve_refname(
+    repo: &gix::Repository,
+    source: &GitSource,
+    refname: &str,
+) -> Result<gix::ObjectId, AggregateError> {
+    if refname.contains('*') || refname.starts_with('!') {
+        return Err(AggregateError::PatternRefName {
+            refname: refname.to_string(),
+        });
+    }
+    let refs_error = |message: String| AggregateError::Refs {
+        url: source.url.clone(),
+        message,
+    };
+    let as_branch = GitSource {
+        branches: vec![refname.to_string()],
+        tags: Vec::new(),
+        ..source.clone()
+    };
+    if let Some((_, id)) = matched_refs(repo, &as_branch).map_err(refs_error)?.pop() {
+        return Ok(id);
+    }
+    let as_tag = GitSource {
+        branches: Vec::new(),
+        tags: vec![refname.to_string()],
+        ..source.clone()
+    };
+    matched_refs(repo, &as_tag)
+        .map_err(refs_error)?
+        .pop()
+        .map(|(_, id)| id)
+        .ok_or_else(|| AggregateError::NoMatchingRef {
+            url: source.url.clone(),
+            branches: vec![refname.to_string()],
+            tags: vec![refname.to_string()],
+        })
 }
 
 /// Enumerates the refs matching the source's patterns as
