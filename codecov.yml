@@ -1,0 +1,73 @@
+codecov:
+  # Post coverage statuses as soon as the uploads arrive rather than waiting
+  # for a CI-completion webhook. The wait occasionally never resolves (the
+  # webhook is missed), leaving a commit's coverage status unposted and the PR
+  # showing a stale status from an earlier commit.
+  notify:
+    wait_for_ci: false
+
+coverage:
+  status:
+    project:
+      default: false
+
+comment:
+  layout: "header, diff, flags, components"
+
+ignore:
+  # Example sites are content, not code.
+  - "examples/**"
+
+# One component per workspace crate (see CLAUDE.md for the directory →
+# package mapping), so the PR comment and the project status break coverage
+# down the same way the workspace is organized.
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+
+  individual_components:
+    - component_id: cli
+      name: bokfell (CLI) coverage
+      paths:
+        - cli/**
+
+    - component_id: model
+      name: bokfell-model coverage
+      paths:
+        - model/**
+
+    - component_id: aggregate
+      name: bokfell-aggregate coverage
+      paths:
+        - aggregate/**
+
+    - component_id: render
+      name: bokfell-render coverage
+      paths:
+        - render/**
+
+    - component_id: theme
+      name: bokfell-theme coverage
+      paths:
+        - theme/**
+
+    - component_id: diff
+      name: bokfell-diff coverage
+      paths:
+        - diff/**
+
+    - component_id: coverage
+      name: bokfell-coverage coverage
+      paths:
+        - coverage/**
+
+    - component_id: serve
+      name: bokfell-serve coverage
+      paths:
+        - serve/**
+
+    - component_id: search
+      name: bokfell-search coverage
+      paths:
+        - search/**

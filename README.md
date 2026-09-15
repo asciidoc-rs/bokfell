@@ -1,5 +1,8 @@
 # Bokfell
 
+[![CI](https://github.com/asciidoc-rs/bokfell/actions/workflows/ci.yml/badge.svg)](https://github.com/asciidoc-rs/bokfell/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/gh/asciidoc-rs/bokfell/graph/badge.svg)](https://codecov.io/gh/asciidoc-rs/bokfell)
+
 Bokfell (Old Norse *bókfell*, "book-skin" — the prepared vellum a manuscript
 is written on) is a documentation site generator for AsciiDoc, built on
 [`asciidoc-parser`](https://crates.io/crates/asciidoc-parser) and
