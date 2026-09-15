@@ -77,6 +77,11 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.filtered.info
+          # Upload only the filtered report. The action's default file search
+          # also matches build fingerprints under `target/` and, worse, the
+          # example site's `spec-coverage.json`, which is a Codecov-format
+          # report and would be merged into the real coverage data.
+          disable_search: true
           fail_ci_if_error: true
           verbose: true
 
