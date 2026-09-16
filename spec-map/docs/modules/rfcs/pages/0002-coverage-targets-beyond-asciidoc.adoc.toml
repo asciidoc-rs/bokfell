@@ -1,0 +1,73 @@
+# Coverage map for RFC 0002
+# (docs/modules/rfcs/pages/0002-coverage-targets-beyond-asciidoc.adoc).
+#
+# Nothing implements RFC 0002 yet, so every rule it states is uncovered on
+# purpose: the page is reviewed so that the gap reads as "not built" rather
+# than "not looked at". Entries target blocks by the same excerpt grammar
+# `verifies!` claims use.
+
+reviewed = true
+
+# Front matter and motivation.
+[[non-normative]]
+excerpt = "Status: *draft*"
+reason = "document status line"
+
+[[non-normative]]
+excerpt = "Retiring the interim `sdd` tools requires it"
+reason = "explains why the RFC exists; states no rule"
+
+[[non-normative]]
+section = "_why_rfc_0001_stops_at_asciidoc"
+reason = "motivation: describes the assumptions RFC 0001 makes and the targets that break them"
+
+# Design discussion: the alternatives weighed before the decision block.
+[[non-normative]]
+excerpt = "Two routes were considered for getting a foreign artifact under that contract:"
+reason = "introduces the alternatives; the decision follows"
+
+[[non-normative]]
+excerpt = "*Native adapters* -- segment the artifact in its own terms"
+reason = "design alternatives under discussion, not rules"
+
+# Adapter section intros and the restatement of RFC 0001.
+[[non-normative]]
+excerpt = "RFC 0001 as written, restated as an adapter"
+reason = "restates RFC 0001; its rules are claimed on that page"
+
+[[non-normative]]
+excerpt = "For minitest-style suites as Asciidoctor writes them:"
+reason = "introduces the list that carries the rules"
+
+[[non-normative]]
+excerpt = "For a specification available only as HTML:"
+reason = "introduces the list that carries the rules"
+
+[[non-normative]]
+excerpt = "Can AsciiDoc be recovered from HTML? In general, only lossily"
+reason = "answers the motivating question; the rules follow in the invariant paragraph"
+
+[[non-normative]]
+excerpt = "Porting the Ruby suite exposed a hole in RFC 0001's static scan."
+reason = "motivation for the ignored-test rule stated in the next paragraph"
+
+[[non-normative]]
+excerpt = "A target we do not author lives in the implementation repo as a *snapshot*"
+reason = "introduces the two requirements that follow"
+
+# Migration: planned work, tracked with the RFC 0001 marker-corpus migration.
+[[non-normative]]
+excerpt = "RFC 0001 §9's one-shot converter grows two Ruby-specific steps:"
+reason = "introduces the planned steps"
+
+[[planned]]
+excerpt = "For each `verifies!` reproduction in `parser/src/tests/asciidoctor_rb/`"
+tracking = "asciidoc-rs/bokfell#11"
+
+[[planned]]
+excerpt = "Then, as in RFC 0001 §9: diff Codecov output before and after"
+tracking = "asciidoc-rs/bokfell#11"
+
+[[non-normative]]
+section = "_open_questions"
+reason = "open questions; each names a decision still to be made"
