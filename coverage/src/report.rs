@@ -288,5 +288,82 @@ mod tests {
         assert!(text.contains("= all pages"));
         let total_line = text.lines().last().unwrap();
         assert!(total_line.contains("66%"), "{total_line}");
+
+        // Several pages of one component version get a subtotal row.
+        let mut second = record(Some("1"), &[(BlockState::Verified, None)]);
+        second.url = "c/q.html".into();
+        let db = CoverageDatabase {
+            pages: vec![record(Some("1"), &[(BlockState::Uncovered, None)]), second],
+            ..Default::default()
+        };
+        let text = table(&db);
+        assert!(text.contains("  = c 1 "), "{text}");
+        assert!(!text.contains("= all pages"), "{text}");
+    }
+
+    #[test]
+    fn lint_lists_errors_then_findings_by_kind() {
+        use crate::resolve::{Diagnostic, DiagnosticKind};
+
+        assert!(lint(&CoverageDatabase::default()).is_empty());
+
+        let diagnostic = |kind, at: &str, message: &str| Diagnostic {
+            kind,
+            at: at.into(),
+            message: message.into(),
+        };
+        let db = CoverageDatabase {
+            errors: vec![diagnostic(
+                DiagnosticKind::NoMatch,
+                "t.rs:3",
+                "excerpt not found",
+            )],
+            lint: vec![
+                diagnostic(DiagnosticKind::Unclassified, "p.adoc:9", "review me"),
+                diagnostic(DiagnosticKind::StalePlanned, "m.toml", "verified now"),
+                diagnostic(DiagnosticKind::Unclassified, "p.adoc:12", "and me"),
+            ],
+            ..Default::default()
+        };
+        let text = lint(&db);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "1 error(s):");
+        assert_eq!(lines[1], "  error[no-match]: t.rs:3: excerpt not found");
+        assert_eq!(lines[2], "1 stale-planned finding(s):");
+        assert_eq!(lines[3], "  m.toml: verified now");
+        assert_eq!(lines[4], "2 unclassified finding(s):");
+        assert_eq!(lines[5], "  p.adoc:9: review me");
+        assert_eq!(lines[6], "  p.adoc:12: and me");
+
+        let tokens: Vec<&str> = [
+            DiagnosticKind::UnknownPage,
+            DiagnosticKind::AmbiguousPage,
+            DiagnosticKind::NoSection,
+            DiagnosticKind::NoMatch,
+            DiagnosticKind::Ambiguous,
+            DiagnosticKind::Contradiction,
+            DiagnosticKind::SidecarConflict,
+            DiagnosticKind::StalePlanned,
+            DiagnosticKind::HeuristicDisagreement,
+            DiagnosticKind::Unclassified,
+        ]
+        .iter()
+        .map(|k| k.token())
+        .collect();
+        assert_eq!(
+            tokens,
+            [
+                "unknown-page",
+                "ambiguous-page",
+                "no-section",
+                "no-match",
+                "ambiguous",
+                "contradiction",
+                "sidecar-conflict",
+                "stale-planned",
+                "heuristic-disagreement",
+                "unclassified"
+            ]
+        );
     }
 }

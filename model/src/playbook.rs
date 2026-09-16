@@ -478,6 +478,41 @@ mod tests {
             "docs/modules/rfcs/pages/x.adoc",
             "docs/modules/rfcs/pages/x.adoc"
         ));
+
+        // A bare `**` (no following slash) spans segments too; a leading
+        // `./` is ignored on either side.
+        assert!(path_glob_match(
+            "docs/**.adoc",
+            "docs/modules/ROOT/pages/x.adoc"
+        ));
+        assert!(!path_glob_match(
+            "docs/**.adoc",
+            "docs/modules/ROOT/pages/x.png"
+        ));
+        assert!(path_glob_match("./docs/*.adoc", "docs/x.adoc"));
+        assert!(!path_glob_match("docs/x.adoc", "docs/x.adoc.bak"));
+    }
+
+    #[test]
+    fn scan_entries_need_exactly_one_repository() {
+        let entry = |repo: Option<&str>, path: Option<&str>| ScanConfig {
+            repo: repo.map(str::to_string),
+            path: path.map(PathBuf::from),
+            reference: None,
+            tests: Vec::new(),
+            spec_map: None,
+            pages: Vec::new(),
+        };
+        assert!(entry(None, None)
+            .validate()
+            .unwrap_err()
+            .contains("needs `repo` or `path`"));
+        assert!(entry(Some("x"), Some("y"))
+            .validate()
+            .unwrap_err()
+            .contains("cannot set both"));
+        entry(Some("x"), None).validate().unwrap();
+        entry(None, Some("y")).validate().unwrap();
     }
 
     #[test]

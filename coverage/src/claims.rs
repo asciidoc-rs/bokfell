@@ -565,4 +565,65 @@ verifies!("component:module:page.adoc", "cross repo");
         assert_eq!(manifest_package_name("[workspace]\nmembers = []\n"), None);
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[test]
+    fn rejects_empty_page_paths() {
+        let bad = |src: &str| scan_source(src, &site()).unwrap_err().to_string();
+        assert!(bad("fn t() { verifies!(\"\", \"a\"); }").contains("empty page path"));
+        assert!(bad("fn t() { verifies!(\"#_x\", \"a\"); }").contains("empty page path"));
+    }
+
+    #[test]
+    fn walks_nested_roots_and_skips_hidden_and_target_dirs() {
+        let dir = std::env::temp_dir().join(format!("bokfell-claims-walk-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+
+        // The nearest manifest declares no package (a workspace root), so
+        // crate discovery keeps climbing to the one that does.
+        std::fs::create_dir_all(dir.join("inner/tests/deep")).unwrap();
+        std::fs::create_dir_all(dir.join("inner/tests/.hidden")).unwrap();
+        std::fs::create_dir_all(dir.join("inner/tests/target")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"outer\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("inner/Cargo.toml"), "[workspace]\nmembers = []\n").unwrap();
+        let claim = "fn t() { verifies!(\"p.adoc\", \"x\"); }\n";
+        std::fs::write(dir.join("inner/tests/deep/a.rs"), claim).unwrap();
+        std::fs::write(dir.join("inner/tests/.hidden/b.rs"), claim).unwrap();
+        std::fs::write(dir.join("inner/tests/target/c.rs"), claim).unwrap();
+        std::fs::write(dir.join("inner/tests/.dot.rs"), claim).unwrap();
+
+        // An empty repo prefix leaves the file path root-relative.
+        let claims = scan_test_root(&TestRoot {
+            dir: dir.join("inner/tests"),
+            repo_prefix: String::new(),
+            local: true,
+            repo: None,
+            rev: None,
+            scope: 0,
+            krate: None,
+        })
+        .unwrap();
+        assert_eq!(claims.len(), 1, "{claims:#?}");
+        assert_eq!(claims[0].site.file, "deep/a.rs");
+        assert_eq!(claims[0].site.krate.as_deref(), Some("outer"));
+        assert_eq!(claims[0].label(), "outer::t");
+
+        // A missing root is an I/O error naming it.
+        let err = scan_test_root(&TestRoot {
+            dir: dir.join("nowhere"),
+            repo_prefix: String::new(),
+            local: true,
+            repo: None,
+            rev: None,
+            scope: 0,
+            krate: None,
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("nowhere"), "{err}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

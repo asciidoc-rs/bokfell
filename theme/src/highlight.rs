@@ -231,5 +231,29 @@ mod tests {
         );
         assert_eq!(split_lines("only\n"), ["only"]);
         assert_eq!(split_lines(""), Vec::<String>::new());
+
+        // A last line without a trailing newline closes what it opened.
+        assert_eq!(
+            split_lines("<span class=\"keyword rust\">fn</span> <span class=\"string rust\">x"),
+            ["<span class=\"keyword\">fn</span> <span class=\"string\">x</span>"]
+        );
+    }
+
+    #[test]
+    fn fragments_of_only_tags_are_recognized() {
+        assert!(only_tags(""));
+        assert!(only_tags("<span class=\"a\"></span>"));
+        assert!(!only_tags("x<span>"));
+        assert!(!only_tags("<span>x"));
+        assert!(!only_tags("<span"));
+    }
+
+    #[test]
+    fn plain_fallback_escapes_markup() {
+        assert_eq!(
+            plain_lines("a < b && c > \"d\"\nnext"),
+            ["a &lt; b &amp;&amp; c &gt; &quot;d&quot;", "next"]
+        );
+        assert_eq!(plain_lines(""), Vec::<String>::new());
     }
 }

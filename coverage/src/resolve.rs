@@ -1139,4 +1139,129 @@ tracking = "o/r#1"
             db.pages[1].coverage
         );
     }
+
+    #[test]
+    fn rollups_merge_pages_of_one_component_version() {
+        let mut second = sample_page(Some("1.0"));
+        second.coords.path = "unordered.adoc".into();
+        second.repo_path = "docs/modules/lists/pages/unordered.adoc".into();
+        let db = resolve(
+            &[sample_page(Some("1.0")), second],
+            vec![claim("ordered.adoc", Some("Intro prose"), 9)],
+            &[],
+        );
+        assert!(db.errors.is_empty(), "{:?}", db.errors);
+
+        let (components, total) = db.rollups();
+        assert_eq!(components.len(), 1);
+        assert_eq!(
+            components[0].0,
+            ("spec".to_string(), Some("1.0".to_string()))
+        );
+        assert_eq!(components[0].1.verified, 1);
+        assert_eq!(components[0].1.unclassified, 7);
+        assert_eq!(total, components[0].1);
+
+        let groups = pages_by_component(&db);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[&("spec".to_string(), "1.0".to_string())].len(), 2);
+
+        // Claims are addressable by provenance.
+        let by_site = claims_by_site(&db);
+        assert_eq!(by_site[&("parser/src/tests/lists.rs".to_string(), 9)], 0);
+    }
+
+    #[test]
+    fn sidecar_targets_are_checked_like_claims() {
+        // A sidecar whose spec path matches no measured page.
+        let stray = Sidecar::parse(
+            "reviewed = true\n",
+            "spec-map/nowhere.adoc.toml",
+            "nowhere.adoc",
+            0,
+        )
+        .unwrap();
+        let db = resolve(&[sample_page(None)], Vec::new(), &[stray]);
+        assert_eq!(db.errors.len(), 1, "{:?}", db.errors);
+        assert_eq!(db.errors[0].kind, DiagnosticKind::UnknownPage);
+        assert_eq!(db.errors[0].at, "spec-map/nowhere.adoc.toml");
+        assert_eq!(
+            db.errors[0].to_string(),
+            format!("spec-map/nowhere.adoc.toml: {}", db.errors[0].message)
+        );
+        assert!(DiagnosticKind::UnknownPage.is_error());
+        assert!(!DiagnosticKind::Unclassified.is_error());
+
+        // A loose suffix matching two pages of the scope is ambiguous.
+        let mut twin = sample_page(None);
+        twin.coords.module = "other".into();
+        twin.repo_path = "docs/modules/other/pages/ordered.adoc".into();
+        let loose = Sidecar::parse(
+            "reviewed = true\n",
+            "spec-map/ordered.adoc.toml",
+            "pages/ordered.adoc",
+            0,
+        )
+        .unwrap();
+        let db = resolve(&[sample_page(None), twin], Vec::new(), &[loose]);
+        assert_eq!(db.errors.len(), 1, "{:?}", db.errors);
+        assert_eq!(db.errors[0].kind, DiagnosticKind::AmbiguousPage);
+        assert!(db.errors[0].message.contains("several pages"));
+
+        // Entries: a section the page lacks, and an excerpt matching more
+        // than one block.
+        let entries = sidecar(
+            "[[non-normative]]\nsection = \"_missing\"\n[[non-normative]]\nexcerpt = \"o\"\n",
+        );
+        let db = resolve(&[sample_page(None)], Vec::new(), &[entries]);
+        let kinds: Vec<DiagnosticKind> = db.errors.iter().map(|d| d.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![DiagnosticKind::NoSection, DiagnosticKind::Ambiguous],
+            "{:?}",
+            db.errors
+        );
+        assert!(db
+            .errors
+            .iter()
+            .all(|e| e.at.ends_with("ordered.adoc.toml")));
+    }
+
+    #[test]
+    fn claims_on_structurally_non_normative_blocks_are_flagged() {
+        let db = resolve(
+            &[sample_page(None)],
+            vec![claim("ordered.adoc", Some(". one\n.. two"), 4)],
+            &[],
+        );
+        assert!(db.errors.is_empty(), "{:?}", db.errors);
+        assert_eq!(states(&db, 0)[2], BlockState::Verified);
+        let finding = db
+            .lint
+            .iter()
+            .find(|d| d.kind == DiagnosticKind::HeuristicDisagreement)
+            .expect("heuristic disagreement");
+        assert_eq!(finding.at, "parser/src/tests/lists.rs:4");
+        assert!(finding.message.contains("listing"), "{}", finding.message);
+    }
+
+    #[test]
+    fn resource_id_targets_need_a_component() {
+        let pages = [sample_page(None)];
+        assert_eq!(
+            pages_for_resource_id(&pages, "spec:lists:ordered.adoc").len(),
+            1
+        );
+        assert!(pages_for_resource_id(&pages, "lists:ordered.adoc").is_empty());
+        assert!(pages_for_resource_id(&pages, "spec::ordered.adoc").is_empty());
+        assert!(pages_for_resource_id(&pages, "").is_empty());
+        assert!(pages_for_resource_id(&pages, "https://example.org/x").is_empty());
+
+        let db = resolve(
+            &pages,
+            vec![claim("lists:ordered.adoc", Some("Intro prose"), 1)],
+            &[],
+        );
+        assert_eq!(db.errors[0].kind, DiagnosticKind::UnknownPage);
+    }
 }

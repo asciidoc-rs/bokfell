@@ -444,6 +444,44 @@ mod tests {
     }
 
     #[test]
+    fn relative_urls_resolve_only_to_local_repositories() {
+        let dir = std::env::temp_dir().join(format!("bokfell-repo-url-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(dir.join("clone/.git")).unwrap();
+        std::fs::create_dir_all(dir.join("plain")).unwrap();
+        std::fs::write(
+            dir.join("bokfell.yml"),
+            "site:\n  title: T\ncontent:\n  sources:\n    - path: docs\n",
+        )
+        .unwrap();
+        let playbook = Playbook::load(&dir.join("bokfell.yml")).unwrap();
+
+        assert_eq!(
+            resolve_repo_url(&playbook, "clone"),
+            dir.join("clone").display().to_string()
+        );
+        assert_eq!(resolve_repo_url(&playbook, "plain"), "plain");
+        assert_eq!(
+            resolve_repo_url(&playbook, "https://github.com/o/r"),
+            "https://github.com/o/r"
+        );
+
+        // Identities of local paths canonicalize; a path that is not
+        // there normalizes like a URL.
+        assert_eq!(
+            repo_identity(&dir.join("clone").display().to_string()),
+            dir.join("clone")
+                .canonicalize()
+                .unwrap()
+                .display()
+                .to_string()
+        );
+        assert_eq!(repo_identity("../nowhere/"), "../nowhere");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn repo_paths_join_cleanly() {
         assert_eq!(join_repo_path("", "modules/x.adoc"), "modules/x.adoc");
         assert_eq!(

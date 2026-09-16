@@ -1284,3 +1284,94 @@ fn write_output(out_dir: &Path, url: &str, bytes: &[u8]) -> anyhow::Result<()> {
     std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(path: &Path, content: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+
+    /// Serve mode composes with edit targets: the overlay carries the
+    /// local file of every claim and inlined test function, the edit
+    /// API's allowlist admits those files, and resolution errors warn
+    /// instead of failing the build.
+    #[test]
+    fn edit_mode_exposes_local_test_files() {
+        let base = std::env::temp_dir().join(format!("bokfell-edit-mode-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+        write(
+            &base.join("docs/antora.yml"),
+            "name: live\nversion: ~\nnav:\n- modules/ROOT/nav.adoc\n",
+        );
+        write(
+            &base.join("docs/modules/ROOT/nav.adoc"),
+            "* xref:index.adoc[]\n",
+        );
+        write(
+            &base.join("docs/modules/ROOT/pages/index.adoc"),
+            "= Live\n\nA rule under test.\n\nA rule that drifted.\n",
+        );
+        write(
+            &base.join("tests/live.rs"),
+            "macro_rules! verifies { ($($t:tt)*) => {}; }\n\n\
+             #[test]\nfn holds() {\n    \
+             verifies!(\"docs/modules/ROOT/pages/index.adoc\", \"A rule under test.\");\n}\n\n\
+             #[test]\nfn stale() {\n    \
+             verifies!(\"docs/modules/ROOT/pages/index.adoc\", \"the old wording\");\n}\n",
+        );
+        let playbook = base.join("bokfell.yml");
+        write(
+            &playbook,
+            "site:\n  title: Live\n\
+             content:\n  sources:\n    - path: docs\n\
+             coverage:\n  scan:\n    - path: .\n      tests: [tests]\n",
+        );
+
+        let (files, editable) = compose_site(
+            &playbook,
+            &ComposeOptions {
+                edit: true,
+                coverage_errors_fatal: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let test_file = base.join("tests/live.rs").canonicalize().unwrap();
+        assert!(
+            editable
+                .iter()
+                .any(|p| p.canonicalize().ok() == Some(test_file.clone())),
+            "{editable:?}"
+        );
+        assert!(editable
+            .iter()
+            .any(|p| p.ends_with("docs/modules/ROOT/pages/index.adoc")));
+
+        let (_, page) = files
+            .iter()
+            .find(|(url, _)| url == "live/index.html")
+            .expect("index page");
+        let page = String::from_utf8_lossy(page);
+        assert!(page.contains("\"s\":\"verified\""), "{page}");
+        assert_eq!(page.matches("\"e\":[").count(), 2, "{page}");
+
+        // The same fixture fails a build, where errors are fatal.
+        let err = compose_site(
+            &playbook,
+            &ComposeOptions {
+                coverage_errors_fatal: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("1 spec-coverage error(s)"),
+            "{err}"
+        );
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+}

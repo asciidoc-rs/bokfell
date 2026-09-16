@@ -364,3 +364,118 @@ pub struct PageRecord {
     /// The page's resolved coverage.
     pub coverage: PageCoverage,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn state_tokens_display_and_denominator_membership() {
+        let tokens: Vec<&str> = BlockState::ALL.iter().map(|s| s.token()).collect();
+        assert_eq!(
+            tokens,
+            [
+                "verified",
+                "planned",
+                "uncovered",
+                "unclassified",
+                "out-of-scope",
+                "non-normative"
+            ]
+        );
+        for state in BlockState::ALL {
+            assert_eq!(state.to_string(), state.token());
+        }
+        let in_denominator: Vec<BlockState> = BlockState::ALL
+            .into_iter()
+            .filter(|s| s.in_denominator())
+            .collect();
+        assert_eq!(
+            in_denominator,
+            [
+                BlockState::Verified,
+                BlockState::Planned,
+                BlockState::Uncovered,
+                BlockState::Unclassified
+            ]
+        );
+    }
+
+    #[test]
+    fn counts_tally_and_percent() {
+        let mut counts = StateCounts::default();
+        for state in BlockState::ALL {
+            counts.add(state);
+        }
+        counts.add(BlockState::Verified);
+        assert_eq!(counts.denominator(), 5);
+        assert_eq!(counts.percent_verified(), 40);
+        for state in BlockState::ALL {
+            assert_eq!(
+                counts.get(state),
+                if state == BlockState::Verified { 2 } else { 1 }
+            );
+        }
+        let mut doubled = counts;
+        doubled.add_counts(&counts);
+        assert_eq!(doubled.verified, 4);
+        assert_eq!(doubled.non_normative, 2);
+        // Nothing to verify counts as fully verified.
+        assert_eq!(StateCounts::default().percent_verified(), 100);
+
+        let page = PageCoverage::from_blocks(vec![BlockCoverage {
+            state: BlockState::Verified,
+            context: "paragraph".into(),
+            page_lines: None,
+            reason: None,
+            tracking: None,
+            claims: vec![0],
+        }]);
+        assert_eq!(page.percent_verified(), 100);
+    }
+
+    #[test]
+    fn claim_labels_and_target_display() {
+        let mut claim = Claim {
+            target: ClaimTarget::Path("docs/p.adoc".into()),
+            anchor: Some("_intro".into()),
+            excerpt: None,
+            site: ClaimSite {
+                file: "src/tests/a.rs".into(),
+                local_path: None,
+                line: 7,
+                test_fn: Some("t".into()),
+                fn_line: None,
+                fn_source: None,
+                krate: Some("k".into()),
+                repo: None,
+                rev: None,
+                scope: 0,
+            },
+        };
+        assert_eq!(claim.target_display(), "docs/p.adoc#_intro");
+        assert_eq!(claim.label(), "k::t");
+        claim.site.krate = None;
+        assert_eq!(claim.label(), "t");
+        claim.site.test_fn = None;
+        assert_eq!(claim.label(), "src/tests/a.rs:7");
+        claim.anchor = None;
+        claim.target = ClaimTarget::ResourceId("c:m:p.adoc".into());
+        assert_eq!(claim.target_display(), "c:m:p.adoc");
+    }
+
+    #[test]
+    fn tracking_shorthand_needs_owner_repo_and_a_number() {
+        assert_eq!(
+            Tracking::parse(" o/r#12 ").url,
+            "https://github.com/o/r/issues/12"
+        );
+        assert_eq!(Tracking::parse("o/r/x#1").url, "o/r/x#1");
+        assert_eq!(Tracking::parse("o/r#abc").url, "o/r#abc");
+        assert_eq!(Tracking::parse("PROJ-9").url, "PROJ-9");
+        assert_eq!(
+            Tracking::parse("https://issues.example.org/9").raw,
+            "https://issues.example.org/9"
+        );
+    }
+}

@@ -363,6 +363,35 @@ tracking = "asciidoc-rs/asciidoc-html5#341"
         assert_eq!(sidecars[0].scope, 3);
         assert!(sidecars[0].reviewed);
 
+        // Without a display prefix the file is named root-relative; a
+        // missing root holds no sidecars.
+        let bare = load_spec_map(&dir, "", 0).unwrap();
+        assert_eq!(bare[0].file, "docs/modules/ROOT/pages/a.adoc.toml");
+        assert!(load_spec_map(&dir.join("missing"), "spec-map", 0)
+            .unwrap()
+            .is_empty());
+
+        // A malformed sidecar fails the whole load, naming its file.
+        std::fs::write(
+            dir.join("docs/broken.adoc.toml"),
+            "[[planned]]\nexcerpt = \"x\"\n",
+        )
+        .unwrap();
+        let err = load_spec_map(&dir, "spec-map", 0).unwrap_err().to_string();
+        assert!(err.contains("spec-map/docs/broken.adoc.toml"), "{err}");
+
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rejects_blank_excerpts() {
+        let err = Sidecar::parse(
+            "[[non-normative]]\nexcerpt = \"  \"\n",
+            "f.toml",
+            "x.adoc",
+            0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("`excerpt` is empty"), "{err}");
     }
 }

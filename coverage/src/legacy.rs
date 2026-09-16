@@ -328,4 +328,38 @@ mod tests {
             .load_str(r#"{ "coverage": { "a.adoc": { "1": -1 } } }"#)
             .is_err());
     }
+
+    #[test]
+    fn loads_files_and_reports_their_paths() {
+        let dir = std::env::temp_dir().join(format!("bokfell-legacy-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let good = dir.join("good.json");
+        std::fs::write(
+            &good,
+            r#"{ "coverage": { "modules/ROOT/pages/index.adoc": { "2": 1 } } }"#,
+        )
+        .unwrap();
+        let bad = dir.join("bad.json");
+        std::fs::write(&bad, "{}").unwrap();
+
+        let mut data = CoverageData::new();
+        assert!(data.is_empty());
+        data.load(&good).unwrap();
+        assert!(!data.is_empty());
+
+        // Keys without a prefix address pages of a root-level source.
+        let lines = data.page_lines("", &coords("index.adoc")).unwrap();
+        assert_eq!(lines.get(&2), Some(&LineStatus::Verified));
+
+        let err = data.load(&bad).unwrap_err().to_string();
+        assert!(err.contains("bad.json"), "{err}");
+        let err = data
+            .load(&dir.join("missing.json"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("missing.json"), "{err}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
