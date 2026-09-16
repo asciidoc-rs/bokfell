@@ -6,6 +6,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     descriptor::{ComponentDescriptor, DescriptorError},
     resource::{Family, ResourceRef},
@@ -37,7 +39,7 @@ pub enum CatalogError {
 }
 
 /// The full coordinates of one cataloged file.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct Coords {
     /// Component name.
     pub component: String,

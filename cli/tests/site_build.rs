@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use bokfell_coverage::{BlockStatus, CoverageData, CoverageScope};
+use bokfell_coverage::{BlockState, CoverageData, CoverageScope};
 use bokfell_model::{ContentCatalog, Family};
 use bokfell_render::Pipeline;
 use bokfell_theme::{PageContext, Theme};
@@ -229,15 +229,17 @@ fn projects_coverage_onto_rendered_blocks() {
 
     // The index has two overlay blocks (its own paragraph plus the
     // included one); the xref paragraph is uncovered, the include-origin
-    // paragraph carries no coverage of this page's lines.
+    // paragraph carries no coverage of this page's lines (the verified
+    // title line belongs to no block).
     let index_coverage = index.coverage.as_ref().expect("index coverage");
+    let states: Vec<BlockState> = index_coverage.blocks.iter().map(|b| b.state).collect();
     assert_eq!(
-        index_coverage.blocks,
-        vec![Some(BlockStatus::Uncovered), None]
+        states,
+        vec![BlockState::Uncovered, BlockState::NonNormative]
     );
-    assert_eq!(index_coverage.verified, 1);
-    assert_eq!(index_coverage.uncovered, 1);
-    assert_eq!(index_coverage.percent_verified(), 50);
+    assert_eq!(index_coverage.counts.uncovered, 1);
+    assert_eq!(index_coverage.counts.non_normative, 1);
+    assert_eq!(index_coverage.percent_verified(), 0);
 
     // Pages without coverage data stay overlay-free.
     assert!(setup.coverage.is_none());

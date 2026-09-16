@@ -54,6 +54,11 @@ pub struct Playbook {
     #[serde(default)]
     pub runtime: RuntimeConfig,
 
+    /// Spec-coverage settings: what to scan for claims and coverage maps
+    /// (RFC 0001 §7).
+    #[serde(default)]
+    pub coverage: CoverageConfig,
+
     /// The directory the playbook was loaded from; source paths resolve
     /// relative to it. Not part of the file format.
     #[serde(skip)]
@@ -151,7 +156,132 @@ pub struct RuntimeConfig {
     pub fetch: bool,
 }
 
+/// The `coverage` block (RFC 0001 §7): the spec pages to measure are the
+/// playbook's own content sources; this names the test roots and coverage
+/// maps to scan against them.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct CoverageConfig {
+    /// The repositories to scan for `verifies!` claims and sidecars.
+    #[serde(default)]
+    pub scan: Vec<ScanConfig>,
+
+    /// The click-through URL template for claims, overriding the GitHub
+    /// default: `{repo}` (the `owner/name` slug), `{repo_url}`, `{rev}`,
+    /// `{path}`, and `{line}` are substituted.
+    #[serde(default)]
+    pub link_template: Option<String>,
+
+    /// Where `bokfell coverage scan` writes the (ephemeral) coverage
+    /// database, relative to the playbook's directory. Defaults to
+    /// `build/coverage.json`.
+    #[serde(default)]
+    pub database: Option<PathBuf>,
+}
+
+/// One `coverage.scan` entry: a repository whose test roots carry claims
+/// and whose spec-map directory carries coverage-map sidecars. Exactly
+/// one of `repo`/`path` must be set. Claims resolve against the pages of
+/// the content sources from the same repository (RFC 0001 §4).
+#[derive(Clone, Debug, Deserialize)]
+pub struct ScanConfig {
+    /// Git repository URL, or filesystem path of a local clone (read at
+    /// `ref`, like a content source's `url`).
+    #[serde(default)]
+    pub repo: Option<String>,
+
+    /// A local directory (a worktree, read as is — uncommitted state
+    /// included), relative to the playbook's directory.
+    #[serde(default)]
+    pub path: Option<PathBuf>,
+
+    /// The ref to read test roots and the spec map at (git `repo` only).
+    /// Defaults to `HEAD`.
+    #[serde(default, rename = "ref")]
+    pub reference: Option<String>,
+
+    /// Test roots to scan for `verifies!` invocations, relative to the
+    /// repository root.
+    #[serde(default)]
+    pub tests: Vec<String>,
+
+    /// The coverage-map root (sidecars mirror spec paths under it),
+    /// relative to the repository root.
+    #[serde(default)]
+    pub spec_map: Option<String>,
+
+    /// Limits the measured pages of this repository to those whose
+    /// repository-relative path matches one of these globs (`*` within a
+    /// segment, `**` across segments). Empty measures every page.
+    #[serde(default)]
+    pub pages: Vec<String>,
+}
+
+impl ScanConfig {
+    /// Validates that exactly one of `repo`/`path` is set.
+    pub fn validate(&self) -> Result<(), String> {
+        match (&self.repo, &self.path) {
+            (Some(_), Some(_)) => {
+                Err("a coverage.scan entry cannot set both `repo` and `path`".into())
+            }
+            (None, None) => Err("a coverage.scan entry needs `repo` or `path`".into()),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether `repo_path` is measured under this entry's `pages` filter.
+    pub fn measures(&self, repo_path: &str) -> bool {
+        self.pages.is_empty()
+            || self
+                .pages
+                .iter()
+                .any(|glob| path_glob_match(glob, repo_path))
+    }
+}
+
+/// Matches a `/`-separated path against a glob where `*` matches within
+/// one segment and `**` matches across segments.
+pub fn path_glob_match(pattern: &str, path: &str) -> bool {
+    fn inner(p: &[u8], n: &[u8]) -> bool {
+        match p {
+            [] => n.is_empty(),
+            [b'*', b'*', b'/', rest @ ..] => {
+                // `**/` matches zero or more whole segments.
+                if inner(rest, n) {
+                    return true;
+                }
+                let mut i = 0;
+                while i < n.len() {
+                    if n[i] == b'/' && inner(rest, &n[i + 1..]) {
+                        return true;
+                    }
+                    i += 1;
+                }
+                false
+            }
+            [b'*', b'*', rest @ ..] => (0..=n.len()).any(|i| inner(rest, &n[i..])),
+            [b'*', rest @ ..] => {
+                (0..=n.len()).any(|i| !n[..i].contains(&b'/') && inner(rest, &n[i..]))
+            }
+            [c, rest @ ..] => n.first() == Some(c) && inner(rest, &n[1..]),
+        }
+    }
+    inner(
+        pattern.trim_start_matches("./").as_bytes(),
+        path.trim_start_matches("./").as_bytes(),
+    )
+}
+
 impl Playbook {
+    /// The resolved coverage database path (default `build/coverage.json`).
+    pub fn coverage_database(&self) -> PathBuf {
+        let path = self
+            .coverage
+            .database
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("build/coverage.json"));
+        self.resolve_path(&path)
+    }
+
     /// Reads and parses the playbook at `path`, recording its directory as
     /// the base for relative paths.
     pub fn load(path: &Path) -> Result<Self, PlaybookError> {
@@ -279,6 +409,110 @@ mod tests {
         assert_eq!(source.start_path, "docs");
         assert!(source.version_from_ref);
         assert!(p.runtime.fetch);
+    }
+
+    #[test]
+    fn parses_coverage_scan_entries() {
+        let yaml = concat!(
+            "site:\n",
+            "  title: Docs\n",
+            "content:\n",
+            "  sources:\n",
+            "  - path: docs\n",
+            "coverage:\n",
+            "  scan:\n",
+            "  - repo: https://github.com/asciidoc-rs/asciidoc-html5\n",
+            "    tests: [html5/src/tests, cli/src/tests]\n",
+            "    spec_map: spec-map\n",
+            "  - path: .\n",
+            "    ref: main\n",
+            "    tests: [coverage/tests]\n",
+            "    pages: ['docs/modules/rfcs/**']\n",
+            "  link_template: 'https://example.org/{repo}/{rev}/{path}#L{line}'\n",
+        );
+        let p: Playbook = serde_norway::from_str(yaml).unwrap();
+        assert_eq!(p.coverage.scan.len(), 2);
+        let git = &p.coverage.scan[0];
+        git.validate().unwrap();
+        assert_eq!(git.tests, ["html5/src/tests", "cli/src/tests"]);
+        assert_eq!(git.spec_map.as_deref(), Some("spec-map"));
+        assert!(git.measures("anything/at/all.adoc"));
+        let local = &p.coverage.scan[1];
+        local.validate().unwrap();
+        assert_eq!(local.reference.as_deref(), Some("main"));
+        assert!(local.measures("docs/modules/rfcs/pages/0001.adoc"));
+        assert!(!local.measures("docs/modules/ROOT/pages/index.adoc"));
+        assert!(p.coverage.link_template.is_some());
+        assert_eq!(p.coverage_database(), PathBuf::from("build/coverage.json"));
+
+        let both = ScanConfig {
+            repo: Some("x".into()),
+            path: Some("y".into()),
+            reference: None,
+            tests: Vec::new(),
+            spec_map: None,
+            pages: Vec::new(),
+        };
+        assert!(both.validate().is_err());
+    }
+
+    #[test]
+    fn path_globs() {
+        assert!(path_glob_match("docs/**", "docs/modules/ROOT/pages/x.adoc"));
+        assert!(path_glob_match(
+            "docs/**/pages/*.adoc",
+            "docs/modules/ROOT/pages/x.adoc"
+        ));
+        assert!(path_glob_match(
+            "**/x.adoc",
+            "docs/modules/ROOT/pages/x.adoc"
+        ));
+        assert!(path_glob_match("**/x.adoc", "x.adoc"));
+        assert!(!path_glob_match(
+            "docs/*/x.adoc",
+            "docs/modules/ROOT/x.adoc"
+        ));
+        assert!(path_glob_match("docs/*/x.adoc", "docs/modules/x.adoc"));
+        assert!(!path_glob_match("docs/**", "other/x.adoc"));
+        assert!(path_glob_match(
+            "docs/modules/rfcs/pages/x.adoc",
+            "docs/modules/rfcs/pages/x.adoc"
+        ));
+
+        // A bare `**` (no following slash) spans segments too; a leading
+        // `./` is ignored on either side.
+        assert!(path_glob_match(
+            "docs/**.adoc",
+            "docs/modules/ROOT/pages/x.adoc"
+        ));
+        assert!(!path_glob_match(
+            "docs/**.adoc",
+            "docs/modules/ROOT/pages/x.png"
+        ));
+        assert!(path_glob_match("./docs/*.adoc", "docs/x.adoc"));
+        assert!(!path_glob_match("docs/x.adoc", "docs/x.adoc.bak"));
+    }
+
+    #[test]
+    fn scan_entries_need_exactly_one_repository() {
+        let entry = |repo: Option<&str>, path: Option<&str>| ScanConfig {
+            repo: repo.map(str::to_string),
+            path: path.map(PathBuf::from),
+            reference: None,
+            tests: Vec::new(),
+            spec_map: None,
+            pages: Vec::new(),
+        };
+        assert!(entry(None, None)
+            .validate()
+            .unwrap_err()
+            .contains("needs `repo` or `path`"));
+        assert!(entry(Some("x"), Some("y"))
+            .validate()
+            .unwrap_err()
+            .contains("cannot set both"));
+        entry(Some("x"), None).validate().unwrap();
+        entry(None, Some("y")).validate().unwrap();
     }
 
     #[test]

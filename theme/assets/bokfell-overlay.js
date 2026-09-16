@@ -1,4 +1,4 @@
-// Bokfell page overlays: spec coverage (PLAN.md §9.2), diff
+// Bokfell page overlays: spec coverage (PLAN.md §9.2, RFC 0001 §8), diff
 // highlighting (PLAN.md §9.1), and click-to-source editing (PLAN.md
 // §9.3, serve mode only).
 //
@@ -131,15 +131,24 @@ function bokfellPairByLine(annotatedLines, targetLines) {
     }
   }
 
+  // Coverage (RFC 0001 §8): each block's entry is null (no block state)
+  // or {s: state, r: reason, t: [tracking, url], c: [claims]} where a
+  // claim is {l: label, f: "file:line", n: line, t: testIndex, u: url,
+  // e: [file, line]} — `e` only in serve mode for locally sourced tests.
+  // data.tests holds each distinct enclosing test function once:
+  // {f: file, l: firstLine, n: name, h: [highlighted line html…],
+  // u: url, e: [file, line]}. (A bare state string is accepted too.)
   wire(
     document.getElementById("bokfell-cov-toggle"),
     data.coverage,
     "coverage-overlay",
     function () {
       for (var i = 0; i < blocks.length; i++) {
-        if (data.coverage[i]) {
-          blocks[i].setAttribute("data-coverage", data.coverage[i]);
-        }
+        var entry = data.coverage[i];
+        if (!entry) continue;
+        var state = typeof entry === "string" ? entry : entry.s;
+        blocks[i].setAttribute("data-coverage", state);
+        if (typeof entry === "object") attachCoverageDetail(blocks[i], entry);
       }
     }
   );
@@ -218,6 +227,172 @@ function bokfellPairByLine(annotatedLines, targetLines) {
       pre.innerHTML = html;
       block.parentNode.insertBefore(pre, block.nextSibling);
     });
+  }
+
+  // A covered block toggles its detail panel on click (while the
+  // coverage overlay is on): state, reason or ticket, and each claim
+  // with a link to the verifying test.
+  function attachCoverageDetail(block, entry) {
+    block.addEventListener("click", function (ev) {
+      if (!document.body.classList.contains("coverage-overlay")) return;
+      if (ev.target.closest("a, button, summary, input")) return;
+      var next = block.nextElementSibling;
+      if (next && next.classList.contains("bokfell-cov-detail")) {
+        next.remove();
+        return;
+      }
+      block.parentNode.insertBefore(coverageDetail(entry), block.nextSibling);
+    });
+  }
+
+  function coverageDetail(entry) {
+    var panel = document.createElement("div");
+    panel.className = "bokfell-cov-detail";
+
+    var state = document.createElement("p");
+    state.className = "cov-state cov-" + entry.s;
+    state.textContent = entry.s.replace(/-/g, " ");
+    panel.appendChild(state);
+
+    if (entry.r) {
+      var reason = document.createElement("p");
+      reason.textContent = "Reason: " + entry.r;
+      panel.appendChild(reason);
+    }
+    if (entry.t) {
+      var tracking = document.createElement("p");
+      tracking.appendChild(document.createTextNode("Tracking: "));
+      var link = document.createElement("a");
+      link.href = entry.t[1];
+      link.textContent = entry.t[0];
+      tracking.appendChild(link);
+      panel.appendChild(tracking);
+    }
+
+    var claims = entry.c || [];
+    var heading = document.createElement("p");
+    heading.textContent = claims.length
+      ? "Verified by " + claims.length + (claims.length === 1 ? " claim:" : " claims:")
+      : entry.s === "verified" ? "" : "No test claims this block.";
+    if (heading.textContent) panel.appendChild(heading);
+
+    // Group the claims by their enclosing test function so each function
+    // is inlined once, with every claim line inside it marked.
+    var tests = Array.isArray(data.tests) ? data.tests : [];
+    var groups = [];
+    var byTest = {};
+    for (var i = 0; i < claims.length; i++) {
+      var claim = claims[i];
+      var key = typeof claim.t === "number" ? "t" + claim.t : "c" + i;
+      if (!byTest[key]) {
+        byTest[key] = { test: typeof claim.t === "number" ? tests[claim.t] : null, claims: [] };
+        groups.push(byTest[key]);
+      }
+      byTest[key].claims.push(claim);
+    }
+    for (var g = 0; g < groups.length; g++) {
+      panel.appendChild(testSection(groups[g].test, groups[g].claims));
+    }
+    return panel;
+  }
+
+  // One enclosing test function: its label, the "go to test" link (and
+  // serve-mode "open test" button), and its highlighted source with the
+  // claim lines marked. Without the source, the bare label and link.
+  function testSection(test, claims) {
+    var section = document.createElement("div");
+    section.className = "cov-test";
+    var first = claims[0];
+
+    var head = document.createElement("p");
+    head.className = "cov-test-head";
+    var name = document.createElement("span");
+    name.className = "cov-fn";
+    name.textContent = first.l;
+    head.appendChild(name);
+    var site = document.createElement("span");
+    site.className = "cov-site";
+    site.textContent = test ? test.f + ":" + test.l : first.f;
+    head.appendChild(site);
+    var url = (test && test.u) || first.u;
+    if (url) {
+      var a = document.createElement("a");
+      a.href = url;
+      a.textContent = "go to test";
+      head.appendChild(a);
+    }
+    var edit = (test && test.e) || first.e;
+    if (edit) head.appendChild(openTestButton(edit[0], edit[1]));
+    section.appendChild(head);
+
+    if (!test || !Array.isArray(test.h)) return section;
+
+    var marked = {};
+    for (var i = 0; i < claims.length; i++) {
+      if (typeof claims[i].n === "number") marked[claims[i].n] = true;
+    }
+    var pre = document.createElement("pre");
+    pre.className = "cov-test-source";
+    var code = document.createElement("code");
+    var firstClaimLine = null;
+    for (var n = 0; n < test.h.length; n++) {
+      var lineNo = test.l + n;
+      var line = document.createElement("span");
+      line.className = "cov-line" + (marked[lineNo] ? " claim" : "");
+      var ln = document.createElement("span");
+      ln.className = "ln";
+      ln.textContent = String(lineNo);
+      line.appendChild(ln);
+      var body = document.createElement("span");
+      // Server-generated: escaped source text with class-only spans.
+      body.innerHTML = test.h[n];
+      line.appendChild(body);
+      code.appendChild(line);
+      if (marked[lineNo] && !firstClaimLine) firstClaimLine = line;
+    }
+    pre.appendChild(code);
+    section.appendChild(pre);
+
+    // Scroll the box so the first claim line sits about a third of the
+    // way down, with its context above. Measured against the box itself
+    // (offsetTop would be relative to some positioned ancestor).
+    if (firstClaimLine) {
+      window.requestAnimationFrame(function () {
+        var lineTop =
+          firstClaimLine.getBoundingClientRect().top -
+          pre.getBoundingClientRect().top +
+          pre.scrollTop;
+        var top = lineTop - pre.clientHeight / 3;
+        pre.scrollTop = top > 0 ? top : 0;
+      });
+    }
+    return section;
+  }
+
+  // Serve mode: "open test" reuses the edit round-trip for the claim's
+  // local Rust file (PLAN.md §9.3).
+  function openTestButton(file, line) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "open test";
+    button.title = "Open " + file + ":" + line + " in your editor";
+    button.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      var params = new URLSearchParams({ file: file, line: String(line) });
+      fetch("/__bokfell/edit?" + params.toString(), { method: "POST" }).then(
+        function (response) {
+          if (!response.ok) {
+            response.text().then(function (text) {
+              window.alert(text || "Cannot open the editor.");
+            });
+          }
+        },
+        function () {
+          window.alert("Cannot reach the dev server.");
+        }
+      );
+    });
+    return button;
   }
 })();
 

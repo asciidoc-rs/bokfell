@@ -5,9 +5,12 @@
 //! the binary; a theme directory can override the layout template per file
 //! (PLAN.md §5 — no Antora-style zip bundles).
 
+mod highlight;
+
 use std::path::Path;
 
 use bokfell_model::{relative_url, NavItem, NavTree};
+pub use highlight::highlight_rust_lines;
 use minijinja::{context, Environment};
 
 /// The embedded default layout template.
@@ -102,15 +105,26 @@ pub struct DiffView {
     pub changes_url: String,
 }
 
-/// The spec-coverage presentation of one page (PLAN.md §9.2).
-#[derive(Clone, Debug)]
+/// The spec-coverage presentation of one page (PLAN.md §9.2, RFC 0001
+/// §3): the five-way block breakdown plus the out-of-scope count shown
+/// beside it.
+#[derive(Clone, Debug, Default)]
 pub struct CoverageView {
-    /// Percentage of the page's normative lines that are verified (0–100).
+    /// The headline percentage: verified blocks over the denominator
+    /// (verified + planned + uncovered + unclassified).
     pub percent: u32,
-    /// Count of verified normative lines.
+    /// Verified blocks.
     pub verified: usize,
-    /// Count of normative-but-uncovered lines.
+    /// Planned blocks.
+    pub planned: usize,
+    /// Uncovered blocks.
     pub uncovered: usize,
+    /// Unclassified blocks.
+    pub unclassified: usize,
+    /// Out-of-scope blocks (outside the denominator).
+    pub out_of_scope: usize,
+    /// Non-normative blocks (outside the denominator).
+    pub non_normative: usize,
     /// Site-root-relative URL of the coverage dashboard page.
     pub dashboard_url: String,
 }
@@ -187,7 +201,12 @@ impl Theme {
             coverage => ctx.coverage.as_ref().map(|cov| context! {
                 percent => cov.percent,
                 verified => cov.verified,
+                planned => cov.planned,
                 uncovered => cov.uncovered,
+                unclassified => cov.unclassified,
+                out_of_scope => cov.out_of_scope,
+                non_normative => cov.non_normative,
+                denominator => cov.verified + cov.planned + cov.uncovered + cov.unclassified,
                 level => coverage_level(cov.percent),
                 dashboard_href =>
                     escape_html(&relative_url(ctx.url, &cov.dashboard_url)),
@@ -334,6 +353,12 @@ pub fn escape_html(text: &str) -> String {
 mod tests {
     use super::*;
 
+    /// The no-op claim marker (RFC 0001 §4): this crate's tests claim the
+    /// RFC blocks they exercise.
+    macro_rules! verifies {
+        ($($tt:tt)*) => {};
+    }
+
     fn item(text: &str, url: Option<&str>, children: Vec<NavItem>) -> NavItem {
         NavItem {
             html: String::new(),
@@ -394,6 +419,10 @@ mod tests {
 
     #[test]
     fn composes_the_overlay_badges_and_payload() {
+        verifies!(
+            "docs/modules/rfcs/pages/0001-spec-coverage.adoc",
+            "*Overlay.* The PLAN.md §9.2 toggle gains the five-state palette: `verified` plain/green, `planned` amber with the ticket link, `uncovered` and `unclassified` red-family (distinct hatching), `out-of-scope` dimmed with a scope badge; `non-normative` dimmed as today."
+        );
         let theme = Theme::default_theme().unwrap();
         let html = theme
             .compose_page(&PageContext {
@@ -408,7 +437,11 @@ mod tests {
                 coverage: Some(CoverageView {
                     percent: 67,
                     verified: 2,
-                    uncovered: 1,
+                    planned: 1,
+                    uncovered: 0,
+                    unclassified: 0,
+                    out_of_scope: 3,
+                    non_normative: 4,
                     dashboard_url: "coverage.html".to_string(),
                 }),
                 diff: Some(DiffView {
@@ -430,6 +463,7 @@ mod tests {
         // link, relativized from the page.
         assert!(html.contains("coverage-badge cov-mid"), "html: {html}");
         assert!(html.contains(">67% verified</button>"));
+        assert!(html.contains("2 verified, 1 planned, 0 uncovered, 0 unclassified of 3 normative blocks; 3 out of scope"), "html: {html}");
         assert!(html.contains("<a href=\"../../coverage.html\">all pages</a>"));
 
         // Diff badge with the base label, counts in the tooltip, and the
@@ -446,11 +480,26 @@ mod tests {
         ));
         assert!(html.contains("<script src=\"../../_/bokfell-overlay.js\" defer></script>"));
 
-        // The script ships as a theme asset.
+        // The script ships as a theme asset, and the stylesheet carries
+        // the five-state palette plus the dimmed non-normative rule.
         assert!(theme
             .assets()
             .iter()
             .any(|(url, _)| url == "_/bokfell-overlay.js"));
+        for state in [
+            "verified",
+            "planned",
+            "uncovered",
+            "unclassified",
+            "out-of-scope",
+            "non-normative",
+        ] {
+            assert!(
+                DEFAULT_CSS.contains(&format!("[data-coverage=\"{state}\"]")),
+                "no palette rule for {state}"
+            );
+        }
+        assert!(DEFAULT_CSS.contains("content: \"out of scope\""));
     }
 
     #[test]

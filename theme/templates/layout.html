@@ -33,7 +33,7 @@
       </div>
 {% endif %}{% if coverage %}      <div class="overlay-badge coverage-badge cov-{{ coverage.level }}">
         <button id="bokfell-cov-toggle" type="button" aria-pressed="false"
-          title="{{ coverage.verified }} verified and {{ coverage.uncovered }} uncovered normative lines. Click to shade blocks by status.">{{ coverage.percent }}% verified</button>
+          title="{{ coverage.verified }} verified, {{ coverage.planned }} planned, {{ coverage.uncovered }} uncovered, {{ coverage.unclassified }} unclassified of {{ coverage.denominator }} normative blocks; {{ coverage.out_of_scope }} out of scope. Click to shade blocks by state, then click a block for its claims.">{{ coverage.percent }}% verified</button>
         <a href="{{ coverage.dashboard_href | safe }}">all pages</a>
       </div>
 {% endif %}    </div>

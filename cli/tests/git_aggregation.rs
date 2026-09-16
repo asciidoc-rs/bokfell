@@ -3,7 +3,7 @@
 
 use std::{path::Path, process::Command};
 
-use bokfell_aggregate::{Aggregator, GitSource};
+use bokfell_aggregate::{file_matches_head, local_repo_info, Aggregator, GitSource};
 use bokfell_model::{ContentCatalog, Coords, Family};
 use bokfell_render::{DiffBase, PageBlockChange, Pipeline};
 
@@ -291,6 +291,64 @@ fn aggregates_branch_and_tag_as_versions() {
         aggregator.collect(&negated),
         Err(bokfell_aggregate::AggregateError::NoMatchingRef { .. })
     ));
+
+    // Single files read at a ref without an export (how the coverage scan
+    // finds a remote test root's `Cargo.toml`): the branch wins over the
+    // same-named tag, a tag resolves when no branch matches, and a path
+    // that is missing at the ref — or names a tree — is `None`.
+    let plain = GitSource {
+        branches: Vec::new(),
+        tags: Vec::new(),
+        ..source.clone()
+    };
+    let extra = aggregator
+        .read_blob(&plain, "main", "docs/modules/ROOT/pages/extra.adoc")
+        .unwrap();
+    assert_eq!(extra.as_deref(), Some(b"= Extra\n\nNew page.\n".as_slice()));
+    let old = aggregator
+        .read_blob(&plain, "v1.0.0", "docs/modules/ROOT/pages/index.adoc")
+        .unwrap();
+    assert!(
+        String::from_utf8(old.unwrap())
+            .unwrap()
+            .contains("The old wording"),
+        "tag content"
+    );
+    assert_eq!(
+        aggregator
+            .read_blob(&plain, "v1.0.0", "docs/modules/ROOT/pages/extra.adoc")
+            .unwrap(),
+        None
+    );
+    assert_eq!(aggregator.read_blob(&plain, "main", "docs").unwrap(), None);
+    assert!(matches!(
+        aggregator.read_blob(&plain, "no-such-ref", "docs/antora.yml"),
+        Err(bokfell_aggregate::AggregateError::NoMatchingRef { .. })
+    ));
+    assert!(matches!(
+        aggregator.read_blob(&plain, "v*", "docs/antora.yml"),
+        Err(bokfell_aggregate::AggregateError::PatternRefName { .. })
+    ));
+
+    // Worktree files compared against HEAD: identical, edited, untracked,
+    // missing, and outside any repository.
+    let extra_path = "docs/modules/ROOT/pages/extra.adoc";
+    assert_eq!(file_matches_head(&repo, extra_path), Some(true));
+    write(&repo.join(extra_path), "= Extra\n\nEdited locally.\n");
+    assert_eq!(file_matches_head(&repo, extra_path), Some(false));
+    write(&repo.join("docs/untracked.adoc"), "= Untracked\n");
+    assert_eq!(file_matches_head(&repo, "docs/untracked.adoc"), Some(false));
+    assert_eq!(file_matches_head(&repo, "docs/missing.adoc"), None);
+    assert_eq!(file_matches_head(&base, "repo/docs/antora.yml"), None);
+
+    // The repository's own provenance, for worktree scans.
+    let info = local_repo_info(&repo.join("docs")).expect("inside the fixture repo");
+    assert_eq!(
+        info.root.canonicalize().unwrap(),
+        repo.canonicalize().unwrap()
+    );
+    assert!(info.head.is_some_and(|h| h.len() == 40), "head commit id");
+    assert!(local_repo_info(&base).is_none());
 
     std::fs::remove_dir_all(&base).ok();
 }

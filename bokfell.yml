@@ -1,0 +1,28 @@
+# Bokfell's own documentation site, and the first site the spec-coverage
+# engine (RFC 0001) measures. From the repository root:
+#
+#     cargo run -- build                  # site lands in build/site
+#     cargo run -- coverage scan          # resolve claims + coverage maps
+#     cargo run -- coverage report        # rollups (--format codecov for CI)
+#     cargo run -- coverage lint          # review queue
+site:
+  title: Bokfell
+  start_page: bokfell::index.adoc
+
+content:
+  sources:
+    - path: docs
+
+coverage:
+  scan:
+    # This repository, read straight from the working tree: the RFC pages
+    # are measured against the workspace's own tests — in several crates,
+    # which claim the RFC's paragraphs with `verifies!` — and classified
+    # by the sidecars under spec-map/.
+    - path: .
+      tests: [coverage/tests, render/src, theme/src, cli/tests]
+      spec_map: spec-map
+      pages: ['docs/modules/rfcs/**']
+
+output:
+  dir: build/site

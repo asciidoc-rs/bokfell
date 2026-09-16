@@ -434,22 +434,213 @@ span.cov-high, span.cov-mid, span.cov-low {
   font-weight: 600;
 }
 
-.coverage-overlay .doc [data-coverage] { border-radius: 3px; }
+/* The five-state coverage palette (RFC 0001 §8): verified green,
+   planned amber with the ticket, uncovered and unclassified red-family
+   (unclassified hatched), out-of-scope dimmed with a scope badge,
+   non-normative dimmed. */
+.coverage-overlay .doc [data-coverage] { cursor: pointer; }
+
+/* The state band sits in the gutter to the left of the block, never
+   under its text: the block shifts left by the band plus a gap and pads
+   the same amount back, so its content stays exactly where it was. */
+.coverage-overlay .doc [data-coverage],
+.diff-overlay .doc [data-diff] {
+  border-left: 3px solid transparent;
+  border-radius: 3px;
+  margin-left: calc(-0.75rem - 3px);
+  padding-left: 0.75rem;
+}
+
+/* A collapsed-border table ignores padding, so its band sits flush
+   against the table's own edge instead (cell padding keeps the text
+   clear of it). */
+.coverage-overlay .doc table[data-coverage],
+.diff-overlay .doc table[data-diff] {
+  margin-left: -3px;
+  padding-left: 0;
+}
 
 .coverage-overlay .doc [data-coverage="verified"] {
   background: rgba(47, 158, 68, 0.12);
-  box-shadow: inset 3px 0 0 #2f9e44;
+  border-left-color: #2f9e44;
 }
 
-.coverage-overlay .doc [data-coverage="partial"] {
+.coverage-overlay .doc [data-coverage="planned"] {
   background: rgba(205, 139, 18, 0.14);
-  box-shadow: inset 3px 0 0 #cd8b12;
+  border-left-color: #cd8b12;
 }
 
 .coverage-overlay .doc [data-coverage="uncovered"] {
   background: rgba(224, 49, 49, 0.1);
-  box-shadow: inset 3px 0 0 #e03131;
+  border-left-color: #e03131;
 }
+
+.coverage-overlay .doc [data-coverage="unclassified"] {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(224, 49, 49, 0.14) 0 6px,
+    rgba(224, 49, 49, 0.04) 6px 12px
+  );
+  border-left-color: #e03131;
+}
+
+.coverage-overlay .doc [data-coverage="out-of-scope"],
+.coverage-overlay .doc [data-coverage="non-normative"] {
+  opacity: 0.55;
+  border-left-color: var(--bf-border);
+}
+
+.coverage-overlay .doc [data-coverage="out-of-scope"] { position: relative; }
+
+.coverage-overlay .doc [data-coverage="out-of-scope"]::before {
+  content: "out of scope";
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bf-muted);
+  border: 1px solid var(--bf-border);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+  background: var(--bf-nav-bg);
+}
+
+/* The per-block detail panel: state, reason or ticket, and the claims
+   with click-through to the verifying tests. */
+.doc .bokfell-cov-detail {
+  border: 1px dashed var(--bf-border);
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  margin: 0.4rem 0 1rem;
+  font-size: 0.85em;
+}
+
+.doc .bokfell-cov-detail .cov-state { font-weight: 600; margin: 0; }
+
+.doc .bokfell-cov-detail p { margin: 0.3rem 0; }
+
+.doc .bokfell-cov-detail ul { margin: 0.3rem 0 0; padding-left: 1.2rem; }
+
+.doc .bokfell-cov-detail .cov-site {
+  color: var(--bf-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  margin-left: 0.4rem;
+}
+
+.doc .bokfell-cov-detail button {
+  font: inherit;
+  font-size: 0.85em;
+  border: 1px solid var(--bf-border);
+  border-radius: 4px;
+  background: var(--bf-nav-bg);
+  color: var(--bf-muted);
+  padding: 0.05rem 0.4rem;
+  margin-left: 0.4rem;
+  cursor: pointer;
+}
+
+/* The inlined test source: numbered lines, the claim's line marked, and
+   a class-based token palette (syntect "spaced" classes) that follows
+   the color scheme. */
+.doc .bokfell-cov-detail .cov-test {
+  margin: 0.5rem 0 0.8rem;
+}
+
+.doc .bokfell-cov-detail .cov-test-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0 0 0.3rem;
+}
+
+.doc .bokfell-cov-detail .cov-test-head .cov-fn { font-weight: 600; }
+
+.doc .bokfell-cov-detail pre.cov-test-source {
+  margin: 0;
+  padding: 0.5rem 0;
+  max-height: 24rem;
+  overflow: auto;
+  font-size: 0.85em;
+  line-height: 1.45;
+  background: var(--bf-code-bg);
+  border: 1px solid var(--bf-border);
+  border-radius: 6px;
+}
+
+.doc .bokfell-cov-detail pre.cov-test-source code { display: block; }
+
+.doc .bokfell-cov-detail .cov-line {
+  display: block;
+  padding: 0 0.75rem 0 0;
+  white-space: pre;
+}
+
+.doc .bokfell-cov-detail .cov-line .ln {
+  display: inline-block;
+  width: 3.2em;
+  padding-right: 0.8em;
+  text-align: right;
+  color: var(--bf-muted);
+  user-select: none;
+}
+
+.doc .bokfell-cov-detail .cov-line.claim {
+  background: rgba(47, 158, 68, 0.14);
+  box-shadow: inset 3px 0 0 #2f9e44;
+}
+
+.doc .bokfell-cov-detail .cov-line.claim .ln { color: #2f9e44; font-weight: 600; }
+
+:root {
+  --bf-tok-comment: #6a737d;
+  --bf-tok-keyword: #a626a4;
+  --bf-tok-string: #50a14f;
+  --bf-tok-number: #986801;
+  --bf-tok-function: #4078f2;
+  --bf-tok-type: #c18401;
+  --bf-tok-macro: #0184bc;
+  --bf-tok-attribute: #6a737d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bf-tok-comment: #8b949e;
+    --bf-tok-keyword: #c678dd;
+    --bf-tok-string: #98c379;
+    --bf-tok-number: #d19a66;
+    --bf-tok-function: #61afef;
+    --bf-tok-type: #e5c07b;
+    --bf-tok-macro: #56b6c2;
+    --bf-tok-attribute: #8b949e;
+  }
+}
+
+.cov-test-source .comment { color: var(--bf-tok-comment); font-style: italic; }
+.cov-test-source .keyword,
+.cov-test-source .storage { color: var(--bf-tok-keyword); }
+.cov-test-source .string { color: var(--bf-tok-string); }
+.cov-test-source .constant { color: var(--bf-tok-number); }
+.cov-test-source .entity.name.function,
+.cov-test-source .support.function { color: var(--bf-tok-function); }
+.cov-test-source .entity.name.type,
+.cov-test-source .storage.type,
+.cov-test-source .support.type { color: var(--bf-tok-type); }
+.cov-test-source .storage.type.function { color: var(--bf-tok-keyword); }
+.cov-test-source .support.macro,
+.cov-test-source .entity.name.macro { color: var(--bf-tok-macro); }
+.cov-test-source .meta.annotation,
+.cov-test-source .variable.annotation { color: var(--bf-tok-attribute); }
+.cov-test-source .punctuation { color: inherit; }
+
+.cov-verified { color: #2f9e44; }
+.cov-planned { color: #cd8b12; }
+.cov-uncovered, .cov-unclassified { color: #e03131; }
+.cov-out-of-scope, .cov-non-normative { color: var(--bf-muted); }
 
 /* Click-to-source edit buttons (serve mode, PLAN.md §9.3). */
 .doc .bokfell-edit {
@@ -473,16 +664,14 @@ span.cov-high, span.cov-mid, span.cov-low {
   border-color: var(--bf-accent);
 }
 
-.diff-overlay .doc [data-diff] { border-radius: 3px; }
-
 .diff-overlay .doc [data-diff="added"] {
   background: rgba(25, 113, 194, 0.12);
-  box-shadow: inset 3px 0 0 #1971c2;
+  border-left-color: #1971c2;
 }
 
 .diff-overlay .doc [data-diff="edited"] {
   background: rgba(156, 54, 181, 0.1);
-  box-shadow: inset 3px 0 0 #9c36b5;
+  border-left-color: #9c36b5;
 }
 
 .diff-overlay .doc [data-diff].has-diff-detail { cursor: pointer; }
@@ -551,6 +740,50 @@ span.cov-high, span.cov-mid, span.cov-low {
 }
 
 .coverage-dashboard tfoot td { font-weight: 600; }
+
+.coverage-dashboard tr.component td { font-weight: 600; background: var(--bf-nav-bg); }
+
+.coverage-dashboard td.state { text-align: right; white-space: nowrap; }
+
+.coverage-dashboard .review-queue { color: #e03131; font-weight: 600; }
+
+/* Stacked bars over the four denominator states; out-of-scope sits
+   beside the bar, never inside it. */
+.cov-bar {
+  display: flex;
+  width: 12rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bf-border);
+}
+
+.cov-bar .verified { background: #2f9e44; }
+.cov-bar .planned { background: #cd8b12; }
+.cov-bar .uncovered { background: #e03131; }
+.cov-bar .unclassified {
+  background: repeating-linear-gradient(135deg, #e03131 0 3px, #f8b4b4 3px 6px);
+}
+
+.cov-legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.85em; }
+
+.cov-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+  margin-right: 0.3rem;
+  vertical-align: middle;
+  background: var(--bf-border);
+}
+
+.cov-legend .verified::before { background: #2f9e44; }
+.cov-legend .planned::before { background: #cd8b12; }
+.cov-legend .uncovered::before { background: #e03131; }
+.cov-legend .unclassified::before {
+  background: repeating-linear-gradient(135deg, #e03131 0 3px, #f8b4b4 3px 6px);
+}
 
 @media (max-width: 60rem) {
   .site-body { flex-direction: column; }

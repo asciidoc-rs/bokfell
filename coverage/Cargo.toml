@@ -1,6 +1,6 @@
 [package]
 name = "bokfell-coverage"
-description = "Spec-coverage ingestion for the Bokfell documentation site generator: per-line coverage data mapped onto rendered blocks for overlays and rollups"
+description = "Spec-coverage engine for the Bokfell documentation site generator: verifies! claim scanning, coverage-map sidecars, block-state resolution, rollups, and Codecov export"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -11,5 +11,9 @@ version.workspace = true
 
 [dependencies]
 bokfell-model = { path = "../model", version = "0.1.0" }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+syn = { version = "2", features = ["full", "visit"] }
 thiserror = "2"
+toml = "0.9"
