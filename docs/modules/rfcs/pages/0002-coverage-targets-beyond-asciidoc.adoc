@@ -116,18 +116,27 @@ once, as the form a human reviewer of that format reads:
 * HTML: the element's text content -- entities decoded, tags dropped --
   because nobody reviews a spec against its markup.
 
-Blocks nest only through sections; a block never contains another block.
-Where a format nests block-level content (an HTML `<li>` holding a `<p>`
-and a sub-list), the adapter splits it the way `asciidoc-parser` splits a
-list item: the item's principal text is one block, and nested items are
-their own blocks. Every measured line belongs to at most one block;
-lines in no block (blank, delimiters, closing tags) are omitted from the
-Codecov projection exactly as RFC 0001 §7 omits them.
+*Block boundaries are those of the overlay walk*, for every adapter. RFC
+0001 as implemented enumerates a page's _outermost content blocks_:
+sections and the preamble are structure that the walk descends through,
+never blocks themselves; a list of any kind is one block, however deeply
+its items nest; a compound block (example, quote, admonition, open) is
+one block, its children never walked. Adapters segment a foreign format
+by the same rule, so a heading opens a section rather than counting as a
+block, and an HTML `<ul>` with nested sub-lists is one block just as its
+AsciiDoc counterpart is. This is what makes the display views of
+<<_display_views_reverse_engineering_asciidoc,§5>> possible: both sides
+of the pairing are walked by one definition. (List-item granularity is a
+recorded rounding of RFC 0001, tracked in PLAN.md's M4 note; when it is
+refined there, it is refined here in the same step.) Every measured line
+belongs to at most one block; lines in no block (blank, delimiters,
+closing tags, headings) are omitted from the Codecov projection exactly
+as RFC 0001 §7 omits them.
 
 The `kind` vocabulary is shared where meanings coincide (`paragraph`,
-`list-item`, `listing`, `table`, `heading`) and adapter-specific where
-they do not (`test-case`, `boilerplate`). Structural defaults are stated
-per kind, so RFC 0001 §5's "listings and block titles are non-normative"
+`list`, `listing`, `table`, `quote`) and adapter-specific where they do
+not (`test-case`, `boilerplate`). Structural defaults are stated per
+kind, so RFC 0001 §5's "listings and block titles are non-normative"
 becomes one adapter's table rather than a global rule.
 
 Path resolution is widened in one place: RFC 0001 §4 resolves a claim's
@@ -210,10 +219,12 @@ For a specification available only as HTML:
   records the open and close lines of every element. (`scraper`, the
   usual convenience layer, is ISC-licensed and fine, but it discards
   line information, so the adapter implements the thin sink itself.)
-* *Blocks* are block-level elements with direct inline content: `p`,
-  `li` and `dt`/`dd` principal text, `pre`, `blockquote` paragraphs,
-  `figcaption`, a `table` as a single block, headings, and any `div`
-  whose children are inline. Kinds map onto the shared vocabulary.
+* *Blocks* are the outermost content elements under the walk rule of
+  <<_the_target_contract,§3>>: a `p` (or a `div` whose children are
+  inline) is a `paragraph`; a whole `ul`, `ol`, or `dl`, nested lists
+  included, is one `list`; a `pre` is a `listing`; a `blockquote` is a
+  `quote`; a `table` and a `figure` are one block each. Headings are not
+  blocks: they open sections.
 * *Sections* follow the heading hierarchy (`h1`-`h6`, or `<section>`
   elements with a heading). *Anchors* are the document's own `id`
   attributes where present -- HTML specs have them on nearly every
@@ -223,9 +234,8 @@ For a specification available only as HTML:
 * *Text* is text content with `script`, `style`, and `template` content
   dropped, `br` read as a space, entities decoded, whitespace collapsed.
 
-Defaults: paragraphs, list items, description terms and definitions, and
-tables are normative; `pre`, headings, captions, and figures are
-non-normative -- the HTML rendering of RFC 0001 §5's table.
+Defaults: paragraphs, lists, quotes, and tables are normative; `pre` and
+figures are non-normative -- the HTML rendering of RFC 0001 §5's table.
 
 == Display views: reverse-engineering AsciiDoc
 
@@ -239,12 +249,21 @@ truth. For *display*, however, lossy is acceptable, and the loss can be
 bounded.
 
 Each adapter emits a generated AsciiDoc view built under one invariant:
-*one view block per target block, in order.* The build parses the view
-like any page, pairs its blocks with the target's by position, and
-attaches states -- so the overlay, the detail panel with click-through,
-the diff against the previous snapshot, and nav all work with no second
-mapping. The Codecov export ignores the view entirely and projects onto
-the target's own lines (<<_codecov_export_and_parity,§9>>).
+*one view block per target block, in order.* The invariant holds by
+construction because both sides share the walk rule of
+<<_the_target_contract,§3>>: the converter maps each target block to
+the AsciiDoc block the walk emits as exactly one block (a `list` to a
+list, a `table` to a table, a `listing` to a listing block, a `test-case`
+to a listing block), and maps section structure to section structure,
+which neither walk counts. The build parses the view like any page,
+pairs its blocks with the target's by position, and attaches states --
+so the overlay, the detail panel with click-through, the diff against
+the previous snapshot, and nav all work with no second mapping. A view
+whose block count nonetheless differs from its target's is a `lint`
+error, and the overlay client already disables itself on a page whose
+counts disagree, so a converter bug degrades to a missing overlay rather
+than mis-shaded blocks. The Codecov export ignores the view entirely and
+projects onto the target's own lines (<<_codecov_export_and_parity,§9>>).
 
 *Ruby view.* One page per test file: a section per `context`, a
 `[source,ruby]` listing per test case titled with the test's name, and a
@@ -319,12 +338,18 @@ coverage:
           publish: false                     # measured, never displayed
 ----
 
-* `path` names a file or a directory (every file of the adapter's
-  extension beneath it). Claims name files by the same repo-relative
-  path, matching today's `track_file!` strings, so the RFC 0001 §9
-  converter needs no change for Ruby targets.
+* `path` names a file or a directory. A directory target measures every
+  file beneath it that carries one of the adapter's extensions (`.rb`;
+  `.html` and `.htm`; `.adoc`) and ignores everything else, so the
+  `LICENSE`, `SOURCE`, and README files that
+  <<_licensing_and_provenance_of_vendored_targets,§8>> requires can sit
+  beside the measured files. A directory that yields no measured file
+  is a scan error, as is a file target whose extension the adapter does
+  not claim. Claims name files by the same repo-relative path, matching
+  today's `track_file!` strings, so the RFC 0001 §9 converter needs no
+  change for Ruby targets.
 * `kind` selects the adapter: `asciidoc`, `ruby-test`, `html`. No
-  auto-detection; an unknown extension under a `path` is a scan error.
+  auto-detection.
 * `publish` places the view pages in the catalog. The view of a target
   file becomes a page of the named module (in the component the scan
   entry's repo contributes to; `component:` may be given explicitly),
@@ -408,8 +433,9 @@ its first.
 
 == Open questions
 
-. *HTML tables.* One block per table matches the AsciiDoc adapter, but
-  specification tables often state one rule per row. Start with one
+. *HTML tables and lists.* One block per table or list matches the
+  AsciiDoc walk, but specification tables and lists often state one
+  rule per row or item. Start with one
   block and revisit with a real target in hand; a per-row option is a
   contained adapter change.
 . *Excerpts across adapters.* An excerpt is matched against source text
