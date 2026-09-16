@@ -1,7 +1,9 @@
 = RFC 0001: Spec coverage, second generation
 
 Status: *draft* -- Supersedes the interim `sdd` tools in `asciidoc-parser`
-and `asciidoc-html5`, and revises PLAN.md §9.2's data contract.
+and `asciidoc-html5`, and revises PLAN.md §9.2's data contract. Extended
+by xref:0002-coverage-targets-beyond-asciidoc.adoc[RFC 0002], which
+generalizes the measured page to non-AsciiDoc targets.
 
 This document is also the design's first proof of concept: it is written as
 an AsciiDoc spec page so that, as the system described here is built, its

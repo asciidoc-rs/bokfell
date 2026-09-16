@@ -1,3 +1,4 @@
 * xref:index.adoc[Overview]
 * RFCs
 ** xref:rfcs:0001-spec-coverage.adoc[RFC 0001: Spec coverage]
+** xref:rfcs:0002-coverage-targets-beyond-asciidoc.adoc[RFC 0002: Coverage targets beyond AsciiDoc]

@@ -18,7 +18,8 @@ lessons taken from Zola, the verified `asciidoc-parser`/`asciidoc-html5`
 integration seams, the designs for the three differentiators, and the
 milestone order. Design RFCs live in Bokfell's own docs component
 (`docs/modules/rfcs/pages/`); RFC 0001 specifies the spec-coverage
-engine and supersedes PLAN.md §9.2's data contract.
+engine and supersedes PLAN.md §9.2's data contract, and RFC 0002 extends
+it to non-AsciiDoc coverage targets (Ruby test suites, HTML documents).
 
 **This repository dogfoods itself.** `bokfell.yml` at the root builds the
 `docs/` component and measures the RFC pages against the workspace's

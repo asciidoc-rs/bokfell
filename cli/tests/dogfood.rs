@@ -57,11 +57,11 @@ fn scans_reports_lints_and_builds_the_dogfood_site() {
     let site = scratch.join("site");
     let site_arg = site.to_string_lossy().into_owned();
 
-    // Scan: every claim and sidecar entry resolves, and the RFC page is
-    // measured.
+    // Scan: every claim and sidecar entry resolves, and both RFC pages
+    // are measured.
     let (ok, stdout, stderr) = bokfell(&["coverage", "scan", "--out", &database_arg]);
     assert!(ok, "scan failed:\n{stdout}\n{stderr}");
-    assert!(stdout.contains("Scanned 1 page(s)"), "{stdout}");
+    assert!(stdout.contains("Scanned 2 page(s)"), "{stdout}");
     assert!(database.is_file());
 
     // Report: the table names the RFC page; the Codecov projection keys
